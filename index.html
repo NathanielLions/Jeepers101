@@ -3,1863 +3,538 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Fairground Organ MIDI Editor & Compiler</title>
-
+<title>Fairground Organ MIDI Compiler v3</title>
 <script src="https://unpkg.com/@tonejs/midi"></script>
-<script src="https://cdn.jsdelivr.net/npm/webaudio-tinysynth@1.3.0/webaudio-tinysynth.js"></script>
-
 <style>
-:root {
-    --bg: #171717;
-    --panel: #252525;
-    --panel2: #1d1d1d;
-    --border: #404040;
-    --text: #ececec;
-    --muted: #9c9c9c;
-    --blue: #1976d2;
-    --blue2: #42a5f5;
-    --green: #2eae60;
-    --red: #c74634;
-    --orange: #d98b22;
-    --purple: #8557b7;
-    --paper: #fbf6eb;
-}
-
-* { box-sizing: border-box; }
-
-html, body {
-    margin: 0;
-    padding: 0;
-    min-height: 100%;
-    background: var(--bg);
-    color: var(--text);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
-}
-
-body { padding: 18px; }
-
-.app { width: min(1500px, 100%); margin: 0 auto; }
-
-h1, h2, h3 { margin-top: 0; }
-
-h1 { margin-bottom: 6px; }
-
-p { color: var(--muted); }
-
-.panel {
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 9px;
-    padding: 15px;
-    margin-bottom: 15px;
-}
-
-.toolbar {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-    align-items: center;
-}
-
-button, select, input[type="text"], input[type="number"] {
-    font: inherit;
-}
-
-button {
-    border: 0;
-    border-radius: 5px;
-    padding: 9px 13px;
-    color: white;
-    background: #4c4c4c;
-    font-weight: 700;
-    cursor: pointer;
-}
-
-button:hover:not(:disabled) { filter: brightness(1.10); }
-button:disabled { opacity: .45; cursor: not-allowed; }
-
-.primary { background: var(--blue); }
-.success { background: var(--green); }
-.danger { background: var(--red); }
-.warning { background: var(--orange); color: #171717; }
-
-.field {
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-    min-width: 150px;
-}
-
-.field label, .small-label {
-    color: #bbb;
-    font-size: 12px;
-    font-weight: 700;
-}
-
-input[type="file"], input[type="text"], input[type="number"], select {
-    background: #3a3a3a;
-    border: 1px solid #555;
-    color: white;
-    border-radius: 5px;
-    padding: 8px;
-}
-
-.status {
-    min-height: 20px;
-    color: #87e69b;
-    margin-top: 9px;
-    font-size: 13px;
-}
-
-.hidden { display: none !important; }
-
-/* Playback */
-.transport {
-    display: grid;
-    grid-template-columns: auto auto auto 1fr auto;
-    gap: 9px;
-    align-items: center;
-}
-
-@media (max-width: 850px) {
-    .transport { grid-template-columns: 1fr 1fr; }
-}
-
-.time-readout {
-    font-family: "Courier New", monospace;
-    font-size: 18px;
-    font-weight: 700;
-    text-align: center;
-    min-width: 120px;
-}
-
-.timeline-slider {
-    width: 100%;
-}
-
-/* Editor */
-.editor-grid {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 330px;
-    gap: 15px;
-}
-
-@media (max-width: 1100px) {
-    .editor-grid { grid-template-columns: 1fr; }
-}
-
-.timeline-wrap {
-    border: 1px solid var(--border);
-    border-radius: 7px;
-    overflow: hidden;
-    background: #111;
-}
-
-.timeline-toolbar {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
-    padding: 9px;
-    background: #202020;
-    border-bottom: 1px solid var(--border);
-}
-
-.timeline-scroll {
-    overflow: auto;
-    max-height: 520px;
-}
-
-#timeline-canvas {
-    display: block;
-    background: #111;
-}
-
-.track-list {
-    max-height: 540px;
-    overflow: auto;
-    display: flex;
-    flex-direction: column;
-    gap: 7px;
-}
-
-.track-row {
-    display: grid;
-    grid-template-columns: 28px minmax(130px, 1fr) 130px 22px;
-    gap: 7px;
-    align-items: center;
-    padding: 8px;
-    border: 1px solid #3b3b3b;
-    border-radius: 6px;
-    background: #181818;
-}
-
-.track-row.off { opacity: .45; }
-.track-number { color: #8d8d8d; text-align: center; font-weight: 700; }
-.track-name { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.track-meta { color: #888; font-size: 11px; margin-top: 3px; }
-
-/* Stops */
-.register-box {
-    background: var(--panel2);
-    border: 1px solid var(--border);
-    border-radius: 7px;
-    padding: 12px;
-}
-
-.register-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 7px;
-}
-
-.register-button {
-    min-height: 42px;
-    background: #3f3f3f;
-    border: 1px solid #555;
-}
-
-.register-button.active {
-    background: #2869b0;
-    border-color: #4ea0ef;
-}
-
-.register-button:active { transform: translateY(1px); }
-
-.cancel-button {
-    width: 100%;
-    margin-top: 9px;
-    background: var(--red);
-}
-
-.active-state {
-    margin-top: 10px;
-    border-radius: 5px;
-    border: 1px solid #343434;
-    background: #151515;
-    padding: 9px;
-    color: #c5c5c5;
-    min-height: 38px;
-    font-size: 12px;
-}
-
-/* Registration history */
-.history {
-    margin-top: 14px;
-    max-height: 300px;
-    overflow: auto;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-}
-
-.history-row {
-    display: grid;
-    grid-template-columns: 90px 1fr auto;
-    gap: 8px;
-    align-items: center;
-    padding: 8px 9px;
-    border-bottom: 1px solid #303030;
-}
-
-.history-row:last-child { border-bottom: 0; }
-.history-row.selected { background: #2a3550; }
-.history-time { font-family: "Courier New", monospace; color: #9bc9ff; font-size: 12px; }
-.history-label { font-weight: 700; }
-.history-delete { padding: 5px 8px; background: #5a5a5a; }
-
-/* Outputs */
-.output-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 12px;
-}
-
-@media (max-width: 900px) {
-    .output-grid { grid-template-columns: 1fr; }
-}
-
-.output-box {
-    background: #161616;
-    border: 1px solid var(--border);
-    border-radius: 7px;
-    padding: 12px;
-}
-
-textarea {
-    width: 100%;
-    min-height: 250px;
-    resize: vertical;
-    background: #0d0d0d;
-    color: #83ff9e;
-    border: 1px solid #333;
-    border-radius: 5px;
-    padding: 10px;
-    font: 12px "Courier New", monospace;
-}
-
-.output-buttons {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 7px;
-    margin-top: 9px;
-}
-
-/* Roll */
-#roll-pages {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    align-items: center;
-}
-
-.canvas-shell {
-    width: 100%;
-    overflow-x: auto;
-    text-align: center;
-}
-
-.canvas-shell canvas {
-    background: var(--paper);
-    border: 2px solid #474747;
-    box-shadow: 0 7px 18px rgba(0,0,0,.4);
-    max-width: 100%;
-    height: auto;
-}
-
-.page-label {
-    color: #9b9b9b;
-    font-size: 12px;
-    margin-bottom: 15px;
-}
-
-.mapping-note {
-    font-size: 12px;
-    line-height: 1.45;
-    color: #a8a8a8;
-}
-
-.kbd {
-    font-family: "Courier New", monospace;
-    background: #111;
-    border: 1px solid #444;
-    border-radius: 3px;
-    padding: 1px 5px;
-}
-
-.stat-row {
-    display: grid;
-    grid-template-columns: repeat(5, 1fr);
-    gap: 8px;
-}
-
-@media (max-width: 900px) {
-    .stat-row { grid-template-columns: repeat(2, 1fr); }
-}
-
-.stat {
-    padding: 10px;
-    background: #1a1a1a;
-    border: 1px solid #343434;
-    border-radius: 5px;
-}
-
-.stat-label { color: #888; font-size: 11px; }
-.stat-value { font-weight: 700; font-size: 18px; margin-top: 3px; }
-
-.inline-note {
-    border-left: 3px solid var(--orange);
-    padding-left: 10px;
-    color: #bbb;
-    font-size: 12px;
-    line-height: 1.45;
-}
+:root{--bg:#171717;--panel:#242424;--panel2:#1c1c1c;--border:#3d3d3d;--text:#eee;--muted:#aaa;--blue:#1677d2;--green:#2e9f56;--red:#b83b3b;--orange:#c98721;--timeline:#111;--grid:#2d2d2d;--playhead:#32a5ff;--paper:#fbf7f0}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;padding:18px}
+.container{max-width:1450px;margin:0 auto}
+h1{margin:0 0 6px;font-size:26px}h2{margin:0 0 8px;font-size:20px}h3{margin:0 0 8px;font-size:15px}
+p{color:var(--muted);line-height:1.45}.panel{background:var(--panel);border:1px solid var(--border);border-radius:9px;padding:16px;margin-bottom:16px;box-shadow:0 4px 16px rgba(0,0,0,.2)}
+.controls{display:flex;gap:12px;flex-wrap:wrap;align-items:end}.field{display:flex;flex-direction:column;gap:5px}.field label{font-size:12px;font-weight:700;color:#ccc}
+input[type=file],input[type=text],select{background:#303030;border:1px solid #555;color:#fff;border-radius:5px;padding:9px}
+input[type=text]{min-width:240px}.btns{display:flex;gap:8px;flex-wrap:wrap}button{border:0;border-radius:5px;color:#fff;font-weight:700;padding:9px 13px;cursor:pointer}button:disabled{opacity:.45;cursor:not-allowed}.blue{background:var(--blue)}.green{background:var(--green)}.red{background:var(--red)}.gray{background:#555}.orange{background:var(--orange)}
+.status{margin-top:10px;min-height:18px;color:#86ef9d;font-size:13px}.badge{display:inline-block;padding:4px 8px;border-radius:999px;background:#333;font-size:11px;color:#ccc}.badge.source{background:#204d77}.badge.output{background:#5c471c}
+.legend{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.legend span{font-size:11px;background:#2d2d2d;border:1px solid #444;border-radius:4px;padding:5px 7px;color:#ccc}
+.editor-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.editor-toolbar .spacer{flex:1}.time-readout{font-family:"Courier New",monospace;color:#fff;background:#111;border:1px solid #444;border-radius:5px;padding:8px 10px;min-width:105px;text-align:center}
+.timeline-shell{border:1px solid var(--border);border-radius:7px;overflow:hidden;background:var(--timeline)}.timeline-scroll{overflow:auto;max-height:560px}.timeline-canvas{display:block;background:var(--timeline)}
+.scrubber{margin-top:10px}.scrubber input[type=range]{width:100%}.scrub-row{display:flex;gap:10px;align-items:center}.scrub-row output{font-family:monospace;color:#fff;min-width:120px;text-align:right}
+.track-editor{display:grid;grid-template-columns:1fr 330px;gap:14px;margin-top:14px}@media(max-width:1000px){.track-editor{grid-template-columns:1fr}}
+.track-list{display:flex;flex-direction:column;gap:7px;max-height:420px;overflow:auto}.track-row{display:grid;grid-template-columns:34px 18px minmax(140px,1fr) 130px 85px;align-items:center;gap:8px;background:var(--panel2);border:1px solid #353535;border-radius:6px;padding:8px}.track-row.off{opacity:.45}.track-num{text-align:center;color:#888;font-weight:700}.track-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:700}.track-info{font-size:11px;color:#888;margin-top:2px}.track-enable{width:17px;height:17px}.role-select{width:100%;padding:7px}
+.register-panel{background:var(--panel2);border:1px solid #353535;border-radius:7px;padding:12px}.register-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px}.register-btn{background:#444;border:1px solid #555;min-height:40px}.register-btn.active{background:#2f6fd0;border-color:#6da2ff;box-shadow:0 0 9px rgba(50,130,255,.25)}.register-help{font-size:11px;color:#888;margin:8px 0}.active-state{margin-top:9px;padding:9px;background:#141414;border:1px solid #303030;border-radius:5px;color:#bbb;font-size:12px;min-height:36px}.cancel{width:100%;margin-top:8px;background:var(--red)}
+.events{margin-top:14px;border-top:1px solid #333;padding-top:12px}.event-list{max-height:240px;overflow:auto;display:flex;flex-direction:column;gap:6px}.event-row{display:grid;grid-template-columns:90px 1fr auto;gap:8px;align-items:center;background:#1a1a1a;border:1px solid #333;padding:7px;border-radius:5px}.event-time{font-family:monospace;color:#bbb}.event-add{color:#76d78a}.event-cancel{color:#ff7e7e}.event-flageolet{color:#c6a3ff}
+.output-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}@media(max-width:900px){.output-grid{grid-template-columns:1fr}}.output-box{background:#151515;border:1px solid #343434;border-radius:7px;padding:12px}.output-box textarea{width:100%;height:220px;resize:vertical;background:#0d0d0d;color:#9dffb5;border:1px solid #333;border-radius:5px;padding:9px;font-family:"Courier New",monospace;font-size:11px}
+.roll-container{display:flex;flex-direction:column;align-items:center;gap:8px}.roll-wrap{width:100%;overflow:auto;text-align:center}.roll-wrap canvas{max-width:100%;height:auto;border:1px solid #444;background:var(--paper);box-shadow:0 12px 30px rgba(0,0,0,.35)}.page-label{font-size:12px;color:#999;margin-bottom:12px}
+.stats{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}@media(max-width:800px){.stats{grid-template-columns:repeat(2,1fr)}}.stat{background:#1a1a1a;border:1px solid #333;border-radius:5px;padding:9px}.stat label{font-size:10px;color:#777}.stat strong{display:block;font-size:18px;margin-top:2px}
+.note{font-size:11px;color:#8c8c8c;margin-top:8px}.danger-note{color:#e69b9b}.success-note{color:#94dda6}.hidden{display:none!important}
 </style>
 </head>
-
 <body>
-<div class="app">
-
-    <h1>Fairground Organ MIDI Editor & Compiler</h1>
-    <p>
-        Parse MIDI → scrub/edit register events → compile the same organ event stream
-        into a 101-hole tracker roll, organ string data, and a new 10-track organ MIDI.
-    </p>
-
+<div class="container">
     <div class="panel">
-        <div class="toolbar">
-            <div class="field">
-                <label for="midi-file">MIDI File</label>
-                <input id="midi-file" type="file" accept=".mid,.midi">
-            </div>
-
-            <div class="field">
-                <label for="output-name">Output Name</label>
-                <input id="output-name" type="text" value="fairground_organ">
-            </div>
-
-            <button id="open-btn" class="primary" disabled>Open MIDI</button>
+        <h1>Fairground Organ MIDI Compiler v3</h1>
+        <p style="margin:0">MIDI editor + registration timeline + 101-hole tracker roll + organ string data + 10-track organ MIDI.</p>
+        <div class="controls" style="margin-top:12px">
+            <div class="field"><label>MIDI FILE</label><input id="midi-file" type="file" accept=".mid,.midi"></div>
+            <div class="field"><label>OUTPUT NAME</label><input id="file-name" type="text" placeholder="Song name"></div>
+            <div class="btns"><button id="open-btn" class="blue" disabled>Open MIDI Editor</button><button id="reset-btn" class="gray" disabled>Reset Editor</button></div>
+        </div>
+        <div id="format-badge" style="margin-top:10px"></div>
+        <div class="legend">
+            <span>Source Ch 1 = Bass</span><span>Source Ch 2 = Accompaniment</span><span>Source Ch 3 = Melody</span><span>Source Ch 10 = Percussion</span>
+            <span>Output Ch 1–10 = organ outputs</span>
         </div>
         <div id="status" class="status"></div>
     </div>
 
-    <div id="editor-panel" class="hidden">
-
-        <div class="panel">
-            <div class="transport">
-                <button id="play-btn" class="primary">▶ Play</button>
-                <button id="stop-btn">■ Stop</button>
-                <button id="rewind-btn">⏮ Start</button>
-
-                <input id="time-slider" class="timeline-slider" type="range" min="0" max="0" step="0.001" value="0" disabled>
-
-                <div id="time-readout" class="time-readout">00:00.000</div>
-            </div>
+    <div id="editor-panel" class="panel hidden">
+        <div class="editor-toolbar">
+            <button id="play-btn" class="green">▶ Play</button><button id="pause-btn" class="gray" disabled>⏸ Pause</button><button id="stop-btn" class="red" disabled>■ Stop</button>
+            <button id="undo-btn" class="gray" disabled>↶ Undo</button><button id="redo-btn" class="gray" disabled>↷ Redo</button>
+            <div class="spacer"></div><div class="time-readout" id="cursor-time">00:00.00</div><div class="badge" id="mode-badge"></div>
         </div>
+        <div class="scrubber">
+            <div class="scrub-row"><input id="time-slider" type="range" min="0" max="1" step="0.001" value="0" disabled><output id="slider-time">00:00.00</output></div>
+        </div>
+        <div class="timeline-shell" style="margin-top:10px"><div id="timeline-scroll" class="timeline-scroll"><canvas id="timeline-canvas" class="timeline-canvas"></canvas></div></div>
 
-        <div class="editor-grid">
-
+        <div class="track-editor">
             <div>
-                <div class="panel timeline-wrap">
-                    <div class="timeline-toolbar">
-                        <strong>MIDI Timeline</strong>
-                        <div class="toolbar">
-                            <span class="small-label">Zoom</span>
-                            <input id="zoom-slider" type="range" min="40" max="280" step="10" value="100">
-                            <span id="zoom-value" class="small-label">100 px/s</span>
-                        </div>
-                    </div>
-
-                    <div id="timeline-scroll" class="timeline-scroll">
-                        <canvas id="timeline-canvas" width="1200" height="520"></canvas>
-                    </div>
-                </div>
-
-                <div class="panel">
-                    <h3>MIDI Tracks</h3>
-                    <div id="track-list" class="track-list"></div>
-                </div>
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><h3 style="margin:0">MIDI Tracks</h3><div class="btns"><button id="all-on-btn" class="gray">All ON</button><button id="all-off-btn" class="gray">All OFF</button></div></div>
+                <div id="track-list" class="track-list"></div>
             </div>
-
-            <div>
-                <div class="panel register-box">
-                    <h3>Registers</h3>
-                    <p class="mapping-note">
-                        Clicking a register adds an ON event at the current playhead.
-                        Register buttons are not ON/OFF checkboxes. Use Cancel Registers
-                        to clear the register state from that point onward.
-                    </p>
-
-                    <div id="register-grid" class="register-grid"></div>
-                    <button id="cancel-registers-btn" class="cancel-button">CANCEL REGISTERS</button>
-
-                    <div id="active-state" class="active-state">No registers active at the playhead.</div>
-                </div>
-
-                <div class="panel">
-                    <div class="toolbar" style="justify-content:space-between;">
-                        <h3 style="margin:0;">Register History</h3>
-                        <div class="toolbar">
-                            <button id="undo-btn">↶ Undo</button>
-                            <button id="redo-btn">↷ Redo</button>
-                        </div>
-                    </div>
-
-                    <div class="inline-note">
-                        Keyboard shortcuts: <span class="kbd">Ctrl+Z</span> undo,
-                        <span class="kbd">Ctrl+Y</span> or <span class="kbd">Ctrl+Shift+Z</span> redo.
-                    </div>
-
-                    <div id="history" class="history"></div>
-                </div>
-
-                <div class="panel">
-                    <h3>Tracker Mapping</h3>
-                    <div class="field">
-                        <label for="bass-first-midi">Bass: MIDI note at tracker hole 15</label>
-                        <input id="bass-first-midi" type="number" min="0" max="127" value="43">
-                    </div>
-                    <div style="height:8px"></div>
-                    <div class="field">
-                        <label for="accomp-first-midi">Accompaniment: MIDI note at tracker hole 33</label>
-                        <input id="accomp-first-midi" type="number" min="0" max="127" value="48">
-                    </div>
-                    <div style="height:8px"></div>
-                    <div class="field">
-                        <label for="melody-first-midi">Melody: MIDI note at tracker hole 65</label>
-                        <input id="melody-first-midi" type="number" min="0" max="127" value="60">
-                    </div>
-                    <div style="height:8px"></div>
-                    <div class="field">
-                        <label for="flageolet-hole">Flageolet physical tracker hole (optional)</label>
-                        <input id="flageolet-hole" type="number" min="1" max="101" placeholder="Not specified">
-                    </div>
-                    <p class="mapping-note">
-                        The tracker note labels/ranges were specified, but the MIDI octave anchor for each division
-                        and the physical Flageolet control hole were not yet specified. These fields keep those values
-                        explicit instead of silently guessing them in the compiler.
-                    </p>
-                </div>
-            </div>
-
-        </div>
-
-        <div class="panel">
-            <div class="toolbar" style="justify-content:space-between;">
-                <div>
-                    <h3 style="margin:0 0 4px 0;">Compile</h3>
-                    <div class="mapping-note">All three exports are generated from the same normalized organ event stream.</div>
-                </div>
-                <button id="compile-btn" class="success">Compile Organ Outputs</button>
+            <div class="register-panel">
+                <h3>Registration</h3>
+                <div class="register-help">Register buttons add an ON event at the current playhead. They do not toggle OFF. Use Cancel Registers to clear the active register state.</div>
+                <div id="register-grid" class="register-grid"></div>
+                <button id="cancel-registers" class="cancel">CANCEL REGISTERS</button>
+                <div id="active-registers" class="active-state">No registers active.</div>
             </div>
         </div>
 
+        <div class="events">
+            <div style="display:flex;justify-content:space-between;align-items:center"><h3>Registration Event History</h3><div class="note">Events are stored separately from source MIDI notes.</div></div>
+            <div id="event-list" class="event-list"></div>
+        </div>
+
+        <div class="btns" style="margin-top:12px">
+            <button id="generate-btn" class="green">Generate Organ Outputs</button>
+            <button id="download-source-btn" class="gray">Download Edited Source MIDI</button>
+        </div>
     </div>
 
     <div id="summary-panel" class="panel hidden">
         <h2>Compilation Summary</h2>
-        <div class="stat-row">
-            <div class="stat"><div class="stat-label">MIDI Tracks</div><div id="stat-tracks" class="stat-value">0</div></div>
-            <div class="stat"><div class="stat-label">Enabled Tracks</div><div id="stat-enabled" class="stat-value">0</div></div>
-            <div class="stat"><div class="stat-label">Organ Events</div><div id="stat-events" class="stat-value">0</div></div>
-            <div class="stat"><div class="stat-label">Register Events</div><div id="stat-register-events" class="stat-value">0</div></div>
-            <div class="stat"><div class="stat-label">Roll Pages</div><div id="stat-pages" class="stat-value">0</div></div>
-        </div>
+        <div class="stats"><div class="stat"><label>INPUT TRACKS</label><strong id="stat-tracks">0</strong></div><div class="stat"><label>NOTES</label><strong id="stat-notes">0</strong></div><div class="stat"><label>REGISTER EVENTS</label><strong id="stat-regs">0</strong></div><div class="stat"><label>PAPER PAGES</label><strong id="stat-pages">0</strong></div><div class="stat"><label>IGNORED NOTES</label><strong id="stat-ignored">0</strong></div></div>
+        <div id="mapping-note" class="note"></div>
     </div>
 
-    <div id="outputs-panel" class="panel hidden">
+    <div id="output-panel" class="panel hidden">
         <h2>Exports</h2>
-
         <div class="output-grid">
-
-            <div class="output-box">
-                <h3>Organ String Data</h3>
-                <p class="mapping-note">
-                    Delta-time stream. Positive hole number = hole ON;
-                    negative hole number = hole OFF.
-                    Register and percussion commands are pulses.
-                </p>
-                <textarea id="string-output" readonly></textarea>
-                <div class="output-buttons">
-                    <button id="copy-string-btn" class="success">Copy String</button>
-                    <button id="download-string-btn">Download String</button>
-                </div>
-            </div>
-
-            <div class="output-box">
-                <h3>Generated Organ MIDI</h3>
-                <p class="mapping-note">
-                    Exactly 10 tracks, in this order:
-                    Bass, Cello, Accompaniment, Forte, Violin, Flute,
-                    Flageolet, Bourdon, Glockenspiel, Percussion.
-                </p>
-                <div class="output-buttons">
-                    <button id="download-midi-btn" class="success">Download Organ MIDI</button>
-                </div>
-            </div>
-
+            <div class="output-box"><h3>Organ String Data</h3><textarea id="string-output" readonly placeholder="Generated tracker-hole string will appear here..."></textarea><div class="btns" style="margin-top:8px"><button id="copy-string" class="green">Copy String</button><button id="download-string" class="gray">Download String</button></div></div>
+            <div class="output-box"><h3>Generated Organ MIDI</h3><p class="note">Exactly 10 tracks: Bass, Cello, Accompaniment, Forte, Violin, Flute, Flageolet, Bourdon, Glockenspiel, Percussion. Input velocities are ignored; generated note velocity is fixed at 127.</p><button id="download-midi" class="green">Download Organ MIDI</button></div>
         </div>
     </div>
 
     <div id="roll-panel" class="panel hidden">
-        <div class="toolbar" style="justify-content:space-between;">
-            <div>
-                <h2 style="margin:0 0 5px 0;">101-Hole Paper Roll</h2>
-                <div class="mapping-note">Transparent punched holes are rendered against the paper background.</div>
-            </div>
-            <button id="download-roll-btn" class="success">Download All Pages</button>
-        </div>
-        <div id="roll-pages" style="margin-top:15px;"></div>
+        <h2>101-Hole Paper Roll</h2>
+        <p style="margin-top:0">Holes 1–14 are controls/percussion. Bass = 15–32, Accompaniment = 33–64, Melody = 65–101. Roll runs top-to-bottom and is mirrored horizontally.</p>
+        <button id="download-roll" class="green">Download All Roll Pages</button>
+        <div id="roll-container" class="roll-container" style="margin-top:14px"></div>
     </div>
-
 </div>
 
 <script>
-"use strict";
-
 /* ============================================================
-   CONFIGURATION
+   FAIRGROUND ORGAN COMPILER V3
+   - Source MIDI: Ch1 Bass, Ch2 Accompaniment, Ch3 Melody, Ch10 Percussion.
+   - Output MIDI: Ch1 Bass, Ch2 Cello, Ch3 Accompaniment, Ch4 Forte,
+     Ch5 Violin, Ch6 Flute, Ch7 Flageolet, Ch8 Bourdon,
+     Ch9 Glockenspiel, Ch10 Percussion.
+   - Velocity is ignored for organ logic.
    ============================================================ */
 
 const CANVAS_WIDTH = 1024;
 const CANVAS_HEIGHT = 4096;
-const TRACKER_HOLES = 101;
+const TRACK_COUNT = 101;
 const TRACK_WIDTH = 8;
-const TRACKER_MARGIN_X = (CANVAS_WIDTH - TRACKER_HOLES * TRACK_WIDTH) / 2;
-const PAPER_PX_PER_SECOND = 256;
-const CONTROL_PULSE_SECONDS = 0.08;
-const PERCUSSION_PULSE_SECONDS = 0.065;
-const FIXED_MIDI_VELOCITY = 1.0;
+const MARGIN_X = (CANVAS_WIDTH - TRACK_COUNT * TRACK_WIDTH) / 2;
+const ROLL_SPEED = 256;
+const REGISTER_PULSE_MS = 80;
+const PERCUSSION_PULSE_MS = 80;
+const FIXED_VELOCITY = 127;
 
-const TRACKER = {
-    CANCEL_REGISTERS: 1,
-    CELLO: 2,
-    FLUTE: 3,
-    GLOCKENSPIEL: 4,
-    BOURDON: 5,
-    VIOLIN: 6,
-    FORTE: 7,
-    TRIANGLE: 8,
-    SNARE_RIGHT: 9,
-    WOOD_BLOCK_RIGHT: 10,
-    SNARE_LEFT: 11,
-    WOOD_BLOCK_LEFT: 12,
-    CYMBAL: 13,
-    BASS_DRUM: 14,
-    BASS_FIRST: 15,
-    BASS_LAST: 32,
-    ACCOMP_FIRST: 33,
-    ACCOMP_LAST: 64,
-    MELODY_FIRST: 65,
-    MELODY_LAST: 101
+const SOURCE_CHANNEL_ROLES = {0:'BASS',1:'ACCOMPANIMENT',2:'MELODY',9:'PERCUSSION'};
+const OUTPUT_TRACKS = ['Bass','Cello','Accompaniment','Forte','Violin','Flute','Flageolet','Bourdon','Glockenspiel','Percussion'];
+const REGISTER_NAMES = ['Cello','Flute','Glockenspiel','Bourdon','Violin','Flageolet','Forte'];
+const REGISTER_TRACK_TO_NAME = {'Cello':'Cello','Forte':'Forte','Violin':'Violin','Flute':'Flute','Flageolet':'Flageolet','Bourdon':'Bourdon','Glockenspiel':'Glockenspiel'};
+const OUTPUT_INDEX_BY_NAME = Object.fromEntries(OUTPUT_TRACKS.map((x,i)=>[x,i]));
+
+const DIVISIONS = {
+  BASS:{firstHole:15,lastHole:32,firstMidi:31,lastMidi:48},
+  ACCOMPANIMENT:{firstHole:33,lastHole:64,firstMidi:48,lastMidi:79},
+  MELODY:{firstHole:65,lastHole:101,firstMidi:60,lastMidi:96}
 };
 
-const REGISTERS = [
-    { name: "Cello", outputTrack: "Cello", trackerHole: TRACKER.CELLO },
-    { name: "Flute", outputTrack: "Flute", trackerHole: TRACKER.FLUTE },
-    { name: "Glockenspiel", outputTrack: "Glockenspiel", trackerHole: TRACKER.GLOCKENSPIEL },
-    { name: "Bourdon", outputTrack: "Bourdon", trackerHole: TRACKER.BOURDON },
-    { name: "Violin", outputTrack: "Violin", trackerHole: TRACKER.VIOLIN },
-    { name: "Flageolet", outputTrack: "Flageolet", trackerHole: null },
-    { name: "Forte", outputTrack: "Forte", trackerHole: TRACKER.FORTE }
-];
-
-const OUTPUT_TRACKS = [
-    "Bass",
-    "Cello",
-    "Accompaniment",
-    "Forte",
-    "Violin",
-    "Flute",
-    "Flageolet",
-    "Bourdon",
-    "Glockenspiel",
-    "Percussion"
-];
-
-const DEFAULT_PERCUSSION_NOTES = {
-    SNARE_WOODBLOCK: 38,
-    TRIANGLE: 81,
-    CYMBAL: 49,
-    BASS_DRUM: 36
+const PHYSICAL_CONTROLS = {
+  1:'Cancel Registers',
+  2:'Cello',
+  3:'Flute',
+  4:'Glockenspiel',
+  5:'Bourdon',
+  6:'Violin',
+  7:'Forte',
+  8:'Triangle',
+  9:'Snare Right',
+  10:'Wood Block Right',
+  11:'Snare Left',
+  12:'Wood Block Left',
+  13:'Cymbal',
+  14:'Bass Drum'
 };
 
-/* ============================================================
-   STATE
-   ============================================================ */
+/* Flageolet has an editor/output track, but the supplied physical 1–14
+   tracker list does not provide a Flageolet control hole. We therefore
+   never invent a hole number for it. */
+const REGISTER_TRACKER_HOLES = {Cello:2,Flute:3,Glockenspiel:4,Bourdon:5,Violin:6,Forte:7,Flageolet:null};
 
-let currentMidi = null;
-let selectedFile = null;
-let editorTracks = [];
-let registerEvents = [];
+/* Source percussion notes observed in the supplied test MIDI:
+   34/35 = bass drum family, 38 = alternating snare+wood block hit,
+   49 = cymbal, 76 = wood block, 81 = triangle. */
+const PERCUSSION_INPUT = {BASS_A:34,BASS_B:35,SNARE_WOODBLOCK:38,CYMBAL:49,WOODBLOCK:76,TRIANGLE:81};
+
+let midi = null;
+let originalMidiBytes = null;
+let sourceMode = 'SOURCE';
+let tracks = [];
+let registrationEvents = [];
 let undoStack = [];
 let redoStack = [];
-let eventSerial = 0;
-let generatedString = "";
+let cursorSec = 0;
+let durationSec = 0;
+let timelineZoom = 70;
+let playing = false;
+let playWallStart = 0;
+let playCursorStart = 0;
+let audioCtx = null;
+let scheduledAudio = [];
 let generatedMidi = null;
-let generatedCanvases = [];
-let currentCompile = null;
-let isPlaying = false;
-let playStartWall = 0;
-let playStartSeconds = 0;
-let synth = null;
-let scheduledTimeouts = [];
-let scheduledPreviewNotes = new Set();
-let selectedHistoryId = null;
-
-/* ============================================================
-   DOM
-   ============================================================ */
+let generatedString = '';
+let canvases = [];
+let alternatingSide = 0;
 
 const $ = id => document.getElementById(id);
 
-const fileInput = $("midi-file");
-const outputNameInput = $("output-name");
-const openBtn = $("open-btn");
-const statusEl = $("status");
-const editorPanel = $("editor-panel");
-const trackList = $("track-list");
-const registerGrid = $("register-grid");
-const activeStateEl = $("active-state");
-const historyEl = $("history");
-const timeSlider = $("time-slider");
-const timeReadout = $("time-readout");
-const timelineCanvas = $("timeline-canvas");
-const timelineScroll = $("timeline-scroll");
-const zoomSlider = $("zoom-slider");
-const zoomValue = $("zoom-value");
+function fmt(sec){
+  sec = Math.max(0, Number(sec)||0);
+  const m = Math.floor(sec/60); const s = sec-m*60;
+  return `${String(m).padStart(2,'0')}:${s.toFixed(2).padStart(5,'0')}`;
+}
+function safeName(name){return String(name||'FairgroundOrgan').replace(/\.[^/.]+$/,'').replace(/[<>:"/\\|?*\x00-\x1F]/g,'').replace(/\s+/g,'_').slice(0,150)||'FairgroundOrgan';}
+function cloneRegs(){return registrationEvents.map(e=>({...e}));}
+function commitEdit(mutator){
+  undoStack.push(cloneRegs());
+  redoStack=[];
+  mutator();
+  sortRegs(); renderRegisters(); renderTimeline(); updateHistoryButtons();
+}
+function undo(){if(!undoStack.length)return;redoStack.push(cloneRegs());registrationEvents=undoStack.pop();renderRegisters();renderTimeline();updateHistoryButtons();}
+function redo(){if(!redoStack.length)return;undoStack.push(cloneRegs());registrationEvents=redoStack.pop();renderRegisters();renderTimeline();updateHistoryButtons();}
+function updateHistoryButtons(){$('undo-btn').disabled=!undoStack.length;$('redo-btn').disabled=!redoStack.length;}
+function sortRegs(){registrationEvents.sort((a,b)=>a.time-b.time || a.id-b.id);}
+function nextId(){return registrationEvents.reduce((m,e)=>Math.max(m,e.id||0),0)+1;}
 
-/* ============================================================
-   HELPERS
-   ============================================================ */
-
-function setStatus(text) {
-    statusEl.textContent = text || "";
+function registerStateAt(time){
+  const active=new Set();
+  sortRegs();
+  for(const e of registrationEvents){
+    if(e.time>time)break;
+    if(e.type==='CANCEL') active.clear();
+    else if(e.type==='REGISTER') active.add(e.name);
+  }
+  return active;
+}
+function addRegister(name){
+  const now=Number(cursorSec.toFixed(3));
+  const state=registerStateAt(now);
+  if(state.has(name)){
+    setStatus(`${name} is already active at ${fmt(now)}. Use Cancel Registers before adding it again.`);
+    return;
+  }
+  commitEdit(()=>registrationEvents.push({id:nextId(),time:now,type:'REGISTER',name}));
+  setStatus(`${name} ON at ${fmt(now)}.`);
+}
+function addCancel(){
+  const now=Number(cursorSec.toFixed(3));
+  commitEdit(()=>registrationEvents.push({id:nextId(),time:now,type:'CANCEL'}));
+  setStatus(`Cancel Registers at ${fmt(now)}.`);
+}
+function deleteRegistration(id){
+  commitEdit(()=>registrationEvents=registrationEvents.filter(e=>e.id!==id));
+  setStatus('Registration event removed.');
+}
+function renderRegisters(){
+  $('register-grid').innerHTML='';
+  REGISTER_NAMES.forEach(name=>{
+    const b=document.createElement('button'); b.className='register-btn'; b.textContent=name; b.dataset.name=name;
+    b.onclick=()=>addRegister(name); $('register-grid').appendChild(b);
+  });
+  document.querySelectorAll('.register-btn').forEach(b=>{
+    const state=registerStateAt(cursorSec); b.classList.toggle('active',state.has(b.dataset.name));
+  });
+  const state=Array.from(registerStateAt(cursorSec));
+  $('active-registers').textContent=state.length?`Active: ${state.join(', ')}`:'No registers active.';
+  $('event-list').innerHTML='';
+  if(!registrationEvents.length){$('event-list').innerHTML='<div class="note">No registration events yet.</div>';return;}
+  registrationEvents.forEach(e=>{
+    const row=document.createElement('div'); row.className='event-row';
+    const label=e.type==='CANCEL'?'Cancel Registers':`${e.name} ON`;
+    const cls=e.type==='CANCEL'?'event-cancel':(e.name==='Flageolet'?'event-flageolet':'event-add');
+    row.innerHTML=`<div class="event-time">${fmt(e.time)}</div><div class="${cls}">${label}</div><button class="red" style="padding:5px 8px">Remove</button>`;
+    row.querySelector('button').onclick=()=>deleteRegistration(e.id); $('event-list').appendChild(row);
+  });
 }
 
-function clamp(value, min, max) {
-    return Math.max(min, Math.min(max, value));
+function setStatus(msg){$('status').textContent=msg;}
+
+function detectFormat(parsed){
+  const names=new Set(parsed.tracks.map(t=>String(t.name||'').trim().toLowerCase()));
+  const organHits=OUTPUT_TRACKS.filter(n=>names.has(n.toLowerCase())).length;
+  if(organHits>=5) return 'ORGAN_OUTPUT';
+  return 'SOURCE';
 }
 
-function cleanFilename(name) {
-    return String(name || "fairground_organ")
-        .replace(/\.[^/.]+$/, "")
-        .replace(/[<>:"/\\|?*\x00-\x1F]/g, "")
-        .replace(/\s+/g, "_")
-        .slice(0, 150) || "fairground_organ";
+function roleForTrack(track,index){
+  if(sourceMode==='SOURCE') return SOURCE_CHANNEL_ROLES[Number(track.channel)] || 'IGNORE';
+  const name=String(track.name||'').trim();
+  const match=OUTPUT_TRACKS.find(x=>x.toLowerCase()===name.toLowerCase());
+  if(match==='Bass')return 'BASS';
+  if(match==='Accompaniment')return 'ACCOMPANIMENT';
+  if(match==='Percussion')return 'PERCUSSION';
+  if(REGISTER_NAMES.includes(match))return 'REGISTER_OUTPUT';
+  return 'IGNORE';
 }
+function trackLabel(role){return ({BASS:'Bass',ACCOMPANIMENT:'Accompaniment',MELODY:'Melody',PERCUSSION:'Percussion',REGISTER_OUTPUT:'Register Output',IGNORE:'Ignore'})[role]||role;}
 
-function formatTime(seconds) {
-    seconds = Math.max(0, Number(seconds) || 0);
-    const mins = Math.floor(seconds / 60);
-    const sec = (seconds % 60).toFixed(3).padStart(6, "0");
-    return `${String(mins).padStart(2, "0")}:${sec}`;
-}
-
-function cloneRegisterEvents(events) {
-    return events.map(e => ({ ...e }));
-}
-
-function getRegister(name) {
-    return REGISTERS.find(r => r.name === name) || null;
-}
-
-function getBassFirstMidi() {
-    return clamp(parseInt($("bass-first-midi").value, 10) || 43, 0, 127);
-}
-
-function getAccompFirstMidi() {
-    return clamp(parseInt($("accomp-first-midi").value, 10) || 48, 0, 127);
-}
-
-function getMelodyFirstMidi() {
-    return clamp(parseInt($("melody-first-midi").value, 10) || 60, 0, 127);
-}
-
-function getFlageoletHole() {
-    const raw = $("flageolet-hole").value.trim();
-    if (!raw) return null;
-    const value = parseInt(raw, 10);
-    return Number.isFinite(value) && value >= 1 && value <= 101 ? value : null;
-}
-
-function normalizedRoleFromName(track) {
-    const name = String(track.name || "").toLowerCase();
-    if (track.instrument?.percussion === true || track.channel === 9) return "PERCUSSION";
-    if (name.includes("bass")) return "BASS";
-    if (name.includes("accompan") || name.includes("accomp")) return "ACCOMPANIMENT";
-    if (name.includes("melody") || name.includes("countermelody") || name.includes("mel")) return "MELODY";
-    if (name.includes("percussion") || name.includes("drum")) return "PERCUSSION";
-    return "IGNORE";
-}
-
-function getCurrentSeconds() {
-    return Number(timeSlider.value) || 0;
-}
-
-function setCurrentSeconds(seconds, fromPlayback = false) {
-    if (!currentMidi) return;
-    const max = Number(timeSlider.max) || 0;
-    const value = clamp(seconds, 0, max);
-    timeSlider.value = value.toFixed(3);
-    updateEditorDisplays(value);
-    updateActiveRegisterUI(value);
-    drawTimeline();
-    if (!fromPlayback) syncScrollToPlayhead();
-}
-
-function registerStateAtTime(seconds) {
-    const active = new Set();
-    const sorted = [...registerEvents].sort((a, b) => (a.time - b.time) || (a.seq - b.seq));
-    for (const event of sorted) {
-        if (event.time > seconds + 1e-9) break;
-        if (event.type === "CANCEL_REGISTERS") {
-            active.clear();
-        } else if (event.type === "REGISTER_ON") {
-            active.add(event.register);
-        }
-    }
-    return active;
-}
-
-function sortRegisterEvents() {
-    registerEvents.sort((a, b) => (a.time - b.time) || (a.seq - b.seq));
-}
-
-function pushUndoSnapshot() {
-    undoStack.push(cloneRegisterEvents(registerEvents));
-    if (undoStack.length > 100) undoStack.shift();
-    redoStack.length = 0;
-}
-
-function addRegisterHistoryEvent(event) {
-    pushUndoSnapshot();
-    registerEvents.push({
-        ...event,
-        id: ++eventSerial,
-        seq: eventSerial
+function openMidiEditor(){
+  if(!$('midi-file').files.length)return;
+  try{
+    const file=$('midi-file').files[0];
+    originalMidiBytes=null;
+    file.arrayBuffer().then(buf=>{
+      originalMidiBytes=buf.slice(0);
+      midi=new Midi(buf);
+      sourceMode=detectFormat(midi);
+      tracks=midi.tracks.map((t,index)=>({index,name:t.name||`Track ${index+1}`,channel:Number.isFinite(t.channel)?t.channel:0,notes:t.notes||[],enabled:true,role:roleForTrack(t,index)}));
+      durationSec=Math.max(0.1,Number(midi.duration)||Math.max(...tracks.flatMap(t=>t.notes.map(n=>n.time+n.duration)),0));
+      cursorSec=0; registrationEvents=[]; undoStack=[]; redoStack=[]; renderAll();
+      $('editor-panel').classList.remove('hidden'); $('summary-panel').classList.add('hidden'); $('output-panel').classList.add('hidden'); $('roll-panel').classList.add('hidden');
+      $('mode-badge').textContent=sourceMode==='SOURCE'?'Source MIDI':'Organ Output MIDI'; $('mode-badge').classList.add(sourceMode==='SOURCE'?'source':'output');
+      $('format-badge').innerHTML=`<span class="badge ${sourceMode==='SOURCE'?'source':'output'}">Detected: ${sourceMode==='SOURCE'?'SOURCE MIDI':'ORGAN-OUTPUT MIDI'}</span>`;
+      $('time-slider').max=durationSec; $('time-slider').value=0; $('time-slider').disabled=false;
+      setStatus(`Loaded ${file.name}: ${tracks.length} tracks, ${countNotes()} notes, ${fmt(durationSec)} duration.`);
     });
-    sortRegisterEvents();
-    selectedHistoryId = eventSerial;
-    refreshEditorAfterRegisterEdit();
+  }catch(err){console.error(err);setStatus(`MIDI load failed: ${err.message}`);}
+}
+function countNotes(){return tracks.reduce((s,t)=>s+t.notes.length,0);}
+
+function renderTracks(){
+  $('track-list').innerHTML='';
+  tracks.forEach((t,i)=>{
+    const row=document.createElement('div'); row.className='track-row'+(t.enabled?'':' off');
+    const sel=document.createElement('select'); sel.className='role-select';
+    [['BASS','Bass'],['ACCOMPANIMENT','Accompaniment'],['MELODY','Melody'],['PERCUSSION','Percussion'],['REGISTER_OUTPUT','Register Output'],['IGNORE','Ignore']].forEach(([v,l])=>{const o=document.createElement('option');o.value=v;o.textContent=l;o.selected=t.role===v;sel.appendChild(o);});
+    sel.onchange=()=>{t.role=sel.value;renderTimeline();};
+    const cb=document.createElement('input'); cb.type='checkbox'; cb.className='track-enable'; cb.checked=t.enabled; cb.onchange=()=>{t.enabled=cb.checked;row.classList.toggle('off',!t.enabled);renderTimeline();};
+    row.innerHTML=`<div class="track-num">${i+1}</div><div></div><div><div class="track-name">${escapeHtml(t.name)}</div><div class="track-info">Channel ${t.channel+1} • ${t.notes.length} notes</div></div><div></div><div></div>`;
+    row.children[1].replaceWith(cb); row.children[3].replaceWith(sel);
+    row.children[4].innerHTML=`<span class="badge">${trackLabel(t.role)}</span>`;
+    $('track-list').appendChild(row);
+  });
+}
+function escapeHtml(v){return String(v).replace(/[&<>"']/g,s=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));}
+
+function timelineLanes(){
+  if(sourceMode==='SOURCE') return tracks.length;
+  return Math.max(tracks.length,10);
+}
+function renderTimeline(){
+  if(!midi)return;
+  const laneH=42, labelW=145, width=Math.max(1400,Math.ceil(durationSec*timelineZoom));
+  const height=laneH*timelineLanes(); const canvas=$('timeline-canvas'); canvas.width=labelW+width; canvas.height=height; canvas.style.width=(labelW+width)+'px'; canvas.style.height=height+'px';
+  const ctx=canvas.getContext('2d'); ctx.clearRect(0,0,canvas.width,canvas.height); ctx.fillStyle='#0e0e0e';ctx.fillRect(0,0,canvas.width,canvas.height);
+  // time grid
+  const pxPerSec=timelineZoom;
+  ctx.font='11px sans-serif';
+  for(let sec=0;sec<=durationSec+0.001;sec+=1){const x=labelW+sec*pxPerSec;ctx.strokeStyle=sec%5===0?'#454545':'#292929';ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,height);ctx.stroke();if(sec%5===0){ctx.fillStyle='#777';ctx.fillText(fmt(sec),x+3,12);}}
+  tracks.slice(0,timelineLanes()).forEach((t,i)=>{
+    const y=i*laneH; ctx.strokeStyle='#2a2a2a';ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(canvas.width,y);ctx.stroke();ctx.fillStyle=t.enabled?'#ddd':'#666';ctx.fillText(`${i+1}. ${t.name||'Track'}`,8,y+26);ctx.fillStyle='#666';ctx.font='10px sans-serif';ctx.fillText(`Ch ${t.channel+1} • ${trackLabel(t.role)}`,8,y+38);ctx.font='11px sans-serif';
+    if(!t.enabled)return;
+    t.notes.forEach(n=>{const x=labelW+n.time*pxPerSec;const w=Math.max(2,n.duration*pxPerSec); if(x+w<labelW||x>canvas.width)return; let fill='#4aa3ff';if(t.role==='BASS')fill='#db5962';else if(t.role==='ACCOMPANIMENT')fill='#55bd72';else if(t.role==='PERCUSSION')fill='#e8a044';else if(t.role==='REGISTER_OUTPUT')fill='#b37be8';ctx.fillStyle=fill;ctx.fillRect(x,y+15,Math.max(1,w),10);});
+  });
+  // registration markers
+  registrationEvents.forEach(e=>{const x=labelW+e.time*pxPerSec;ctx.strokeStyle=e.type==='CANCEL'?'#ff6565':'#b57bff';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,height);ctx.stroke();});
+  // playhead
+  const px=labelW+cursorSec*pxPerSec;ctx.strokeStyle='#36a7ff';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(px,0);ctx.lineTo(px,height);ctx.stroke();
 }
 
-function refreshEditorAfterRegisterEdit() {
-    renderHistory();
-    updateActiveRegisterUI(getCurrentSeconds());
-    drawTimeline();
-    setStatus("Registration timeline updated.");
+function seek(sec){cursorSec=clamp(sec,0,durationSec);$('time-slider').value=cursorSec;updateCursorUI();renderRegisters();renderTimeline();if(playing)restartPlaybackAtCursor();}
+function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
+function updateCursorUI(){$('cursor-time').textContent=fmt(cursorSec);$('slider-time').value=fmt(cursorSec);}
+
+$('time-slider').addEventListener('input',e=>seek(Number(e.target.value)));
+$('timeline-canvas').addEventListener('pointerdown',e=>{const r=e.currentTarget.getBoundingClientRect();const x=e.clientX-r.left-145;seek(x/timelineZoom);});
+
+function midiNotesForPreview(){
+  const out=[];
+  if(sourceMode==='ORGAN_OUTPUT'){
+    tracks.forEach(t=>{if(!t.enabled)return;const outputName=OUTPUT_TRACKS.find(n=>n.toLowerCase()===t.name.toLowerCase());if(!outputName)return;for(const n of t.notes){out.push({time:n.time,duration:n.duration,midi:n.midi,kind:outputName,percussion:outputName==='Percussion'});}});
+    return out;
+  }
+  tracks.forEach(t=>{
+    if(!t.enabled)return;
+    if(t.role==='BASS') t.notes.forEach(n=>out.push({time:n.time,duration:n.duration,midi:n.midi,kind:'Bass'}));
+    else if(t.role==='ACCOMPANIMENT') t.notes.forEach(n=>out.push({time:n.time,duration:n.duration,midi:n.midi,kind:'Accompaniment'}));
+    else if(t.role==='PERCUSSION') t.notes.forEach(n=>out.push({time:n.time,duration:n.duration,midi:n.midi,kind:'Percussion',percussion:true}));
+    else if(t.role==='MELODY'){
+      t.notes.forEach(n=>{
+        const state=registerStateAt(n.time);
+        state.forEach(reg=>out.push({time:n.time,duration:n.duration,midi:n.midi,kind:reg}));
+      });
+    }
+  });
+  return out;
 }
 
-function deleteRegisterEvent(id) {
-    const index = registerEvents.findIndex(e => e.id === id);
-    if (index < 0) return;
-    pushUndoSnapshot();
-    registerEvents.splice(index, 1);
-    if (selectedHistoryId === id) selectedHistoryId = null;
-    refreshEditorAfterRegisterEdit();
+function stopAllAudio(){
+  scheduledAudio.forEach(x=>{try{x.stop?.()}catch{}try{x.disconnect?.()}catch{}});scheduledAudio=[];
 }
-
-function undoRegisterEdit() {
-    if (!undoStack.length) return;
-    redoStack.push(cloneRegisterEvents(registerEvents));
-    registerEvents = undoStack.pop();
-    selectedHistoryId = null;
-    refreshEditorAfterRegisterEdit();
-    setStatus("Undo complete.");
+function ensureAudio(){if(!audioCtx)audioCtx=new (window.AudioContext||window.webkitAudioContext)();if(audioCtx.state==='suspended')audioCtx.resume();}
+function toneConfig(kind){
+  const configs={
+    Bass:{type:'triangle',gain:.16,mult:0.5},Accompaniment:{type:'square',gain:.07,mult:1},
+    Cello:{type:'sawtooth',gain:.08,mult:1},Violin:{type:'sawtooth',gain:.065,mult:1},Flute:{type:'sine',gain:.10,mult:1},
+    Flageolet:{type:'sine',gain:.08,mult:2},Bourdon:{type:'triangle',gain:.09,mult:.5},Glockenspiel:{type:'sine',gain:.08,mult:2},Forte:{type:'square',gain:.06,mult:1}
+  };return configs[kind]||configs.Accompaniment;
 }
-
-function redoRegisterEdit() {
-    if (!redoStack.length) return;
-    undoStack.push(cloneRegisterEvents(registerEvents));
-    registerEvents = redoStack.pop();
-    selectedHistoryId = null;
-    refreshEditorAfterRegisterEdit();
-    setStatus("Redo complete.");
+function midiFreq(n){return 440*Math.pow(2,(n-69)/12);}
+function scheduleTone(note,when,kind,remainingDuration){
+  const c=toneConfig(kind);const osc=audioCtx.createOscillator();const gain=audioCtx.createGain();
+  const f=midiFreq(note.midi)*c.mult;osc.type=c.type;osc.frequency.setValueAtTime(f,when);
+  gain.gain.setValueAtTime(0.0001,when);gain.gain.linearRampToValueAtTime(c.gain,when+0.015);gain.gain.setTargetAtTime(c.gain*0.55,when+0.05,0.07);gain.gain.setTargetAtTime(0.0001,Math.max(when+0.03,when+remainingDuration-0.05),0.05);
+  osc.connect(gain);gain.connect(audioCtx.destination);osc.start(when);osc.stop(when+Math.max(0.06,remainingDuration));scheduledAudio.push(osc,gain);
 }
+function scheduleNoise(when,duration,gainAmount=.12,filterFreq=1800){
+  const buffer=audioCtx.createBuffer(1,Math.ceil(audioCtx.sampleRate*Math.min(1,duration)),audioCtx.sampleRate);const data=buffer.getChannelData(0);for(let i=0;i<data.length;i++)data[i]=Math.random()*2-1;
+  const src=audioCtx.createBufferSource();const g=audioCtx.createGain();const f=audioCtx.createBiquadFilter();f.type='bandpass';f.frequency.value=filterFreq;f.Q.value=.7;
+  g.gain.setValueAtTime(gainAmount,when);g.gain.exponentialRampToValueAtTime(.0001,when+duration);src.buffer=buffer;src.connect(f);f.connect(g);g.connect(audioCtx.destination);src.start(when);src.stop(when+duration+.01);scheduledAudio.push(src,g,f);
+}
+function schedulePerc(note,when,duration){
+  const n=note.midi;
+  if(n===34||n===35||n===36){
+    const o=audioCtx.createOscillator(),g=audioCtx.createGain();o.type='sine';o.frequency.setValueAtTime(105,when);o.frequency.exponentialRampToValueAtTime(45,when+.11);g.gain.setValueAtTime(.28,when);g.gain.exponentialRampToValueAtTime(.0001,when+Math.max(.18,duration));o.connect(g);g.connect(audioCtx.destination);o.start(when);o.stop(when+Math.max(.2,duration));scheduledAudio.push(o,g);
+  }else if(n===38){scheduleNoise(when,Math.min(.14,Math.max(.07,duration)),.14,2400);}
+  else if(n===49){scheduleNoise(when,Math.min(.35,Math.max(.18,duration)),.12,5200);}
+  else if(n===76){const o=audioCtx.createOscillator(),g=audioCtx.createGain();o.type='square';o.frequency.value=580;g.gain.setValueAtTime(.12,when);g.gain.exponentialRampToValueAtTime(.0001,when+.10);o.connect(g);g.connect(audioCtx.destination);o.start(when);o.stop(when+.11);scheduledAudio.push(o,g);}
+  else if(n===81){const o=audioCtx.createOscillator(),g=audioCtx.createGain();o.type='triangle';o.frequency.value=1250;g.gain.setValueAtTime(.11,when);g.gain.exponentialRampToValueAtTime(.0001,when+.16);o.connect(g);g.connect(audioCtx.destination);o.start(when);o.stop(when+.17);scheduledAudio.push(o,g);}
+}
+function startPlayback(){
+  if(playing)return; if(!midi)return; ensureAudio(); stopAllAudio();playing=true;playWallStart=performance.now();playCursorStart=cursorSec;updatePlayButtons();
+  const start=cursorSec;const now=audioCtx.currentTime+.05;
+  midiNotesForPreview().forEach(n=>{
+    const end=n.time+n.duration;if(end<start)return;const noteStart=Math.max(n.time,start);const d=end-noteStart;const when=now+(noteStart-start);if(d<=0)return;if(n.percussion)schedulePerc(n,when,d);else scheduleTone(n,when,n.kind,d);
+  });
+  requestAnimationFrame(playLoop);
+}
+function playLoop(){if(!playing)return;const elapsed=(performance.now()-playWallStart)/1000;cursorSec=playCursorStart+elapsed;if(cursorSec>=durationSec){cursorSec=durationSec;playing=false;stopAllAudio();updatePlayButtons();updateCursorUI();renderRegisters();renderTimeline();return;}updateCursorUI();renderRegisters();renderTimeline();requestAnimationFrame(playLoop);}
+function pausePlayback(){if(!playing)return;const elapsed=(performance.now()-playWallStart)/1000;cursorSec=clamp(playCursorStart+elapsed,0,durationSec);playing=false;stopAllAudio();updatePlayButtons();updateCursorUI();renderRegisters();renderTimeline();}
+function restartPlaybackAtCursor(){if(!playing)return;playing=false;stopAllAudio();startPlayback();}
+function stopPlayback(){playing=false;stopAllAudio();cursorSec=0;updatePlayButtons();updateCursorUI();renderRegisters();renderTimeline();}
+function updatePlayButtons(){$('play-btn').disabled=playing;$('pause-btn').disabled=!playing;$('stop-btn').disabled=!playing;}
 
 /* ============================================================
-   REGISTER UI
+   PHYSICAL ORGAN EVENT COMPILATION
    ============================================================ */
-
-function buildRegisterUI() {
-    registerGrid.innerHTML = "";
-    for (const register of REGISTERS) {
-        const button = document.createElement("button");
-        button.className = "register-button";
-        button.textContent = register.name;
-        button.addEventListener("click", () => {
-            const current = getCurrentSeconds();
-            const active = registerStateAtTime(current);
-            if (active.has(register.name)) {
-                setStatus(`${register.name} is already active at ${formatTime(current)}. Use Cancel Registers before re-adding it.`);
-                return;
-            }
-            addRegisterHistoryEvent({
-                type: "REGISTER_ON",
-                time: current,
-                register: register.name
-            });
-        });
-        registerGrid.appendChild(button);
-    }
+function trackerForMidi(midiNote,division){const d=DIVISIONS[division];if(!d||midiNote<d.firstMidi||midiNote>d.lastMidi)return null;return d.firstHole+(midiNote-d.firstMidi);}
+function percussionHoles(midiNote){
+  if(midiNote===PERCUSSION_INPUT.BASS_A||midiNote===PERCUSSION_INPUT.BASS_B)return [14];
+  if(midiNote===PERCUSSION_INPUT.SNARE_WOODBLOCK){const holes=alternatingSide===0?[9,10]:[11,12];alternatingSide=1-alternatingSide;return holes;}
+  if(midiNote===PERCUSSION_INPUT.CYMBAL)return [13];
+  if(midiNote===PERCUSSION_INPUT.WOODBLOCK){const hole=alternatingSide===0?10:12;alternatingSide=1-alternatingSide;return [hole];}
+  if(midiNote===PERCUSSION_INPUT.TRIANGLE)return [8];
+  return [];
 }
-
-function updateActiveRegisterUI(seconds) {
-    const active = registerStateAtTime(seconds);
-    const buttons = [...registerGrid.querySelectorAll(".register-button")];
-    buttons.forEach(button => {
-        button.classList.toggle("active", active.has(button.textContent));
+function physicalEvents(){
+  const spans=[];let ignored=0;alternatingSide=0;
+  // Registration punches first, independent of notes.
+  registrationEvents.forEach(e=>{
+    if(e.type==='CANCEL') spans.push({hole:1,start:e.time,end:e.time+REGISTER_PULSE_MS/1000,type:'REGISTER'});
+    else {const h=REGISTER_TRACKER_HOLES[e.name];if(h!==null&&h!==undefined)spans.push({hole:h,start:e.time,end:e.time+REGISTER_PULSE_MS/1000,type:'REGISTER'});}
+  });
+  if(sourceMode==='SOURCE'){
+    tracks.forEach(t=>{
+      if(!t.enabled)return;
+      if(t.role==='BASS'||t.role==='ACCOMPANIMENT'||t.role==='MELODY'){
+        const div=t.role;
+        t.notes.forEach(n=>{const h=trackerForMidi(n.midi,div);if(h===null){ignored++;return;}spans.push({hole:h,start:n.time,end:n.time+n.duration,type:'NOTE'});});
+      }else if(t.role==='PERCUSSION'){
+        t.notes.forEach(n=>{const holes=percussionHoles(n.midi);if(!holes.length){ignored++;return;}holes.forEach(h=>spans.push({hole:h,start:n.time,end:n.time+PERCUSSION_PULSE_MS/1000,type:'PERCUSSION'}));});
+      }
     });
-
-    if (!active.size) {
-        activeStateEl.textContent = "No registers active at the playhead.";
-    } else {
-        activeStateEl.textContent = "Active at playhead: " + [...active].join(", ");
-    }
-}
-
-$("cancel-registers-btn").addEventListener("click", () => {
-    const current = getCurrentSeconds();
-    const active = registerStateAtTime(current);
-    if (!active.size) {
-        setStatus(`No active registers to cancel at ${formatTime(current)}.`);
-        return;
-    }
-    addRegisterHistoryEvent({
-        type: "CANCEL_REGISTERS",
-        time: current
+  }else{
+    tracks.forEach(t=>{
+      if(!t.enabled)return;
+      if(t.role==='BASS'||t.role==='ACCOMPANIMENT'){
+        const div=t.role;t.notes.forEach(n=>{const h=trackerForMidi(n.midi,div);if(h===null){ignored++;return;}spans.push({hole:h,start:n.time,end:n.time+n.duration,type:'NOTE'});});
+      }else if(t.role==='REGISTER_OUTPUT'){
+        // Output MIDI has melody notes split by register. They still map to the melody division.
+        t.notes.forEach(n=>{const h=trackerForMidi(n.midi,'MELODY');if(h===null){ignored++;return;}spans.push({hole:h,start:n.time,end:n.time+n.duration,type:'NOTE'});});
+      }else if(t.role==='PERCUSSION'){
+        t.notes.forEach(n=>{const holes=percussionHoles(n.midi);if(!holes.length){ignored++;return;}holes.forEach(h=>spans.push({hole:h,start:n.time,end:n.time+PERCUSSION_PULSE_MS/1000,type:'PERCUSSION'}));});
+      }
     });
-});
-
-/* ============================================================
-   HISTORY UI
-   ============================================================ */
-
-function renderHistory() {
-    historyEl.innerHTML = "";
-
-    if (!registerEvents.length) {
-        const empty = document.createElement("div");
-        empty.style.padding = "12px";
-        empty.style.color = "#888";
-        empty.textContent = "No registration events have been added.";
-        historyEl.appendChild(empty);
-        return;
-    }
-
-    for (const event of registerEvents) {
-        const row = document.createElement("div");
-        row.className = "history-row";
-        if (event.id === selectedHistoryId) row.classList.add("selected");
-
-        const time = document.createElement("div");
-        time.className = "history-time";
-        time.textContent = formatTime(event.time);
-
-        const label = document.createElement("div");
-        label.className = "history-label";
-        label.textContent = event.type === "CANCEL_REGISTERS"
-            ? "CANCEL REGISTERS"
-            : `${event.register} ON`;
-
-        const del = document.createElement("button");
-        del.className = "history-delete";
-        del.textContent = "✕";
-        del.title = "Remove this registration event";
-        del.addEventListener("click", (e) => {
-            e.stopPropagation();
-            deleteRegisterEvent(event.id);
-        });
-
-        row.append(time, label, del);
-        row.addEventListener("click", () => {
-            selectedHistoryId = event.id;
-            setCurrentSeconds(event.time);
-            renderHistory();
-        });
-
-        historyEl.appendChild(row);
-    }
+  }
+  spans.sort((a,b)=>a.start-b.start||a.hole-b.hole);return {spans,ignored};
 }
 
-$("undo-btn").addEventListener("click", undoRegisterEdit);
-$("redo-btn").addEventListener("click", redoRegisterEdit);
-
-document.addEventListener("keydown", (e) => {
-    if (!(e.ctrlKey || e.metaKey)) return;
-    if (e.key.toLowerCase() === "z") {
-        e.preventDefault();
-        if (e.shiftKey) redoRegisterEdit();
-        else undoRegisterEdit();
-    }
-    if (e.key.toLowerCase() === "y") {
-        e.preventDefault();
-        redoRegisterEdit();
-    }
-});
-
-/* ============================================================
-   FILE LOAD
-   ============================================================ */
-
-fileInput.addEventListener("change", () => {
-    selectedFile = fileInput.files?.[0] || null;
-    openBtn.disabled = !selectedFile;
-    if (!selectedFile) return;
-    outputNameInput.value = cleanFilename(selectedFile.name);
-    setStatus(`Selected ${selectedFile.name}.`);
-});
-
-openBtn.addEventListener("click", async () => {
-    if (!selectedFile) return;
-    stopPlayback();
-    try {
-        setStatus("Parsing MIDI...");
-        const buffer = await selectedFile.arrayBuffer();
-        currentMidi = new Midi(buffer);
-        buildEditorTracks();
-        buildEditorRange();
-        registerEvents = [];
-        undoStack = [];
-        redoStack = [];
-        selectedHistoryId = null;
-        generatedString = "";
-        generatedMidi = null;
-        currentCompile = null;
-        buildRegisterUI();
-        renderHistory();
-        editorPanel.classList.remove("hidden");
-        $("summary-panel").classList.add("hidden");
-        $("outputs-panel").classList.add("hidden");
-        $("roll-panel").classList.add("hidden");
-        drawTimeline();
-        updateActiveRegisterUI(0);
-        setStatus(`Loaded ${currentMidi.tracks.length} MIDI track(s). Drag the scrubber or scroll the timeline.`);
-    } catch (error) {
-        console.error(error);
-        setStatus(`MIDI parsing failed: ${error.message}`);
-        alert(`Could not parse this MIDI file.\n\n${error.message}`);
-    }
-});
-
-function buildEditorTracks() {
-    editorTracks = currentMidi.tracks.map((track, index) => ({
-        index,
-        name: track.name || `Track ${index + 1}`,
-        channel: Number.isFinite(track.channel) ? track.channel : 0,
-        notes: [...(track.notes || [])],
-        enabled: true,
-        role: normalizedRoleFromName(track)
-    }));
-    renderTrackList();
+function buildString(spans){
+  if(!spans.length)return '';
+  const first=Math.min(...spans.map(s=>s.start));const events=new Map();const push=(time,val)=>{const t=Math.round((time-first)*1000);if(!events.has(t))events.set(t,[]);events.get(t).push(val);};
+  spans.forEach(s=>{push(s.start,s.hole);push(s.end,-s.hole);});
+  const times=Array.from(events.keys()).sort((a,b)=>a-b);let last=0;const chunks=[];times.forEach(t=>{const vals=events.get(t).sort((a,b)=>{if(a>=0&&b<0)return -1;if(a<0&&b>=0)return 1;return a-b;});chunks.push(`${t-last},${vals.join(',')}`);last=t;});return chunks.join('|');
 }
 
-function buildEditorRange() {
-    let duration = Number(currentMidi.duration) || 0;
-    for (const track of currentMidi.tracks) {
-        for (const note of track.notes || []) {
-            duration = Math.max(duration, note.time + note.duration);
-        }
-    }
-    timeSlider.max = Math.max(0.001, duration).toFixed(3);
-    timeSlider.value = "0";
-    timeSlider.disabled = false;
-    updateEditorDisplays(0);
+function activeRegistersForMelodyNote(noteTime){return Array.from(registerStateAt(noteTime));}
+function buildGeneratedMidi(){
+  const out=new Midi();
+  const tracksOut={};OUTPUT_TRACKS.forEach((name,i)=>{const t=out.addTrack();t.name=name;t.channel=i;tracksOut[name]=t;});
+  if(sourceMode==='ORGAN_OUTPUT'){
+    tracks.forEach(t=>{if(!t.enabled)return;const target=OUTPUT_TRACKS.find(x=>x.toLowerCase()===t.name.toLowerCase());if(!target)return;t.notes.forEach(n=>tracksOut[target].addNote({midi:n.midi,time:n.time,duration:n.duration,velocity:FIXED_VELOCITY/127}));});
+    return out;
+  }
+  tracks.forEach(t=>{
+    if(!t.enabled)return;
+    if(t.role==='BASS')t.notes.forEach(n=>tracksOut.Bass.addNote({midi:n.midi,time:n.time,duration:n.duration,velocity:FIXED_VELOCITY/127}));
+    else if(t.role==='ACCOMPANIMENT')t.notes.forEach(n=>tracksOut.Accompaniment.addNote({midi:n.midi,time:n.time,duration:n.duration,velocity:FIXED_VELOCITY/127}));
+    else if(t.role==='PERCUSSION')t.notes.forEach(n=>tracksOut.Percussion.addNote({midi:n.midi,time:n.time,duration:n.duration,velocity:FIXED_VELOCITY/127}));
+    else if(t.role==='MELODY')t.notes.forEach(n=>activeRegistersForMelodyNote(n.time).forEach(reg=>tracksOut[reg].addNote({midi:n.midi,time:n.time,duration:n.duration,velocity:FIXED_VELOCITY/127})));
+  });
+  return out;
 }
 
-function renderTrackList() {
-    trackList.innerHTML = "";
+function renderRoll(spans){
+  const container=$('roll-container');container.innerHTML='';canvases=[];if(!spans.length)return 0;
+  const first=Math.min(...spans.map(s=>s.start));const normalized=spans.map(s=>({hole:s.hole,start:(s.start-first)*ROLL_SPEED,end:(s.end-first)*ROLL_SPEED}));
+  const total=Math.max(...normalized.map(s=>s.end))+120;const pages=Math.max(1,Math.ceil(total/CANVAS_HEIGHT));
+  for(let page=0;page<pages;page++){
+    const canvas=document.createElement('canvas');canvas.width=CANVAS_WIDTH;canvas.height=CANVAS_HEIGHT;const ctx=canvas.getContext('2d');
+    ctx.save();ctx.translate(CANVAS_WIDTH,0);ctx.scale(-1,1);
+    ctx.fillStyle='#fbf7f0';ctx.fillRect(0,0,CANVAS_WIDTH,CANVAS_HEIGHT);
+    ctx.strokeStyle='rgba(205,185,155,.38)';ctx.lineWidth=1;for(let i=0;i<=TRACK_COUNT;i++){const x=MARGIN_X+i*TRACK_WIDTH;ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,CANVAS_HEIGHT);ctx.stroke();}
+    ctx.globalCompositeOperation='destination-out';const ps=page*CANVAS_HEIGHT,pe=ps+CANVAS_HEIGHT;
+    normalized.forEach(s=>{if(s.end<ps||s.start>pe)return;const y=Math.max(0,s.start-ps);const h=Math.max(TRACK_WIDTH,Math.min(CANVAS_HEIGHT,s.end)-Math.max(0,s.start-ps));if(h<=0)return;const x=MARGIN_X+(s.hole-1)*TRACK_WIDTH+2;drawRound(ctx,x,y,TRACK_WIDTH-4,h);});
+    ctx.restore();
+    const wrap=document.createElement('div');wrap.className='roll-wrap';wrap.appendChild(canvas);container.appendChild(wrap);const label=document.createElement('div');label.className='page-label';label.textContent=`Roll Page ${page+1} of ${pages}`;container.appendChild(label);canvases.push(canvas);
+  }
+  return pages;
+}
+function drawRound(ctx,x,y,w,h){ctx.beginPath();if(ctx.roundRect)ctx.roundRect(x,y,w,h,Math.min(w/2,6));else ctx.rect(x,y,w,h);ctx.fill();}
 
-    if (!editorTracks.length) {
-        trackList.textContent = "No MIDI tracks found.";
-        return;
-    }
-
-    for (const track of editorTracks) {
-        const row = document.createElement("div");
-        row.className = "track-row";
-        if (!track.enabled) row.classList.add("off");
-
-        const number = document.createElement("div");
-        number.className = "track-number";
-        number.textContent = track.index + 1;
-
-        const info = document.createElement("div");
-        const name = document.createElement("div");
-        name.className = "track-name";
-        name.textContent = track.name;
-        const meta = document.createElement("div");
-        meta.className = "track-meta";
-        meta.textContent = `Ch ${track.channel + 1} • ${track.notes.length} notes`;
-        info.append(name, meta);
-
-        const role = document.createElement("select");
-        [
-            ["IGNORE", "Ignore"],
-            ["BASS", "Bass"],
-            ["ACCOMPANIMENT", "Accompaniment"],
-            ["MELODY", "Melody"],
-            ["PERCUSSION", "Percussion"]
-        ].forEach(([value, label]) => {
-            const option = document.createElement("option");
-            option.value = value;
-            option.textContent = label;
-            if (track.role === value) option.selected = true;
-            role.appendChild(option);
-        });
-        role.addEventListener("change", () => {
-            track.role = role.value;
-            drawTimeline();
-        });
-
-        const checkbox = document.createElement("input");
-        checkbox.type = "checkbox";
-        checkbox.checked = track.enabled;
-        checkbox.title = "Show/use this track";
-        checkbox.addEventListener("change", () => {
-            track.enabled = checkbox.checked;
-            row.classList.toggle("off", !track.enabled);
-            drawTimeline();
-        });
-
-        row.append(number, info, role, checkbox);
-        trackList.appendChild(row);
-    }
+function generateOutputs(){
+  if(!midi)return;
+  const {spans,ignored}=physicalEvents();generatedString=buildString(spans);generatedMidi=buildGeneratedMidi();
+  $('string-output').value=generatedString;
+  const pages=renderRoll(spans);
+  $('stat-tracks').textContent=tracks.length;$('stat-notes').textContent=countNotes();$('stat-regs').textContent=registrationEvents.length;$('stat-pages').textContent=pages;$('stat-ignored').textContent=ignored;
+  $('summary-panel').classList.remove('hidden');$('output-panel').classList.remove('hidden');$('roll-panel').classList.remove('hidden');
+  const flags=[];
+  if(registrationEvents.some(e=>e.name==='Flageolet'))flags.push('Flageolet has no assigned physical tracker control hole in the supplied 1–14 layout, so its registration event is not punched into the roll; its generated MIDI track is still created.');
+  if(sourceMode==='SOURCE')flags.push('Bass mapping is MIDI 31–48 → tracker 15–32; Accompaniment is MIDI 48–79 → 33–64; Melody is MIDI 60–96 → 65–101.');
+  $('mapping-note').textContent=flags.join(' ');
+  setStatus(`Outputs generated: ${pages} paper-roll page(s), ${generatedString.length.toLocaleString()} string characters, 10-track organ MIDI.`);
 }
 
-/* ============================================================
-   TIME / SCRUBBER
-   ============================================================ */
-
-timeSlider.addEventListener("input", () => {
-    const time = getCurrentSeconds();
-    setCurrentSeconds(time);
-    if (isPlaying) restartPlaybackFromCurrent();
-});
-
-zoomSlider.addEventListener("input", () => {
-    zoomValue.textContent = `${zoomSlider.value} px/s`;
-    drawTimeline();
-});
-
-/* Clicking the timeline scrubs the playhead. */
-timelineCanvas.addEventListener("pointerdown", (event) => {
-    if (!currentMidi) return;
-    const rect = timelineCanvas.getBoundingClientRect();
-    const scale = timelineCanvas.width / rect.width;
-    const x = (event.clientX - rect.left) * scale;
-    const seconds = x / Number(zoomSlider.value);
-    setCurrentSeconds(seconds);
-    if (isPlaying) restartPlaybackFromCurrent();
-});
-
-function updateEditorDisplays(seconds) {
-    timeReadout.textContent = formatTime(seconds);
-}
-
-function syncScrollToPlayhead() {
-    const zoom = Number(zoomSlider.value);
-    const x = getCurrentSeconds() * zoom;
-    const viewport = timelineScroll.clientWidth;
-    const target = Math.max(0, x - viewport * 0.45);
-    timelineScroll.scrollLeft = target;
-}
-
-/* ============================================================
-   MIDI AUDIO PREVIEW
-   ============================================================ */
-
-async function ensureSynth() {
-    if (synth) return;
-    synth = new WebAudioTinySynth({ quality: 1, useReverb: 1 });
-}
-
-function stopAllSynthNotes() {
-    if (synth) {
-        for (let ch = 0; ch < 16; ch++) {
-            synth.send([0xB0 + ch, 123, 0]);
-        }
-    }
-    scheduledTimeouts.forEach(id => clearTimeout(id));
-    scheduledTimeouts = [];
-    scheduledPreviewNotes.clear();
-}
-
-function schedulePreviewNote(note, channel, delaySeconds) {
-    if (!synth) return;
-    const noteId = `${channel}-${note.ticks ?? note.time}-${note.midi}`;
-    if (scheduledPreviewNotes.has(noteId)) return;
-    scheduledPreviewNotes.add(noteId);
-    const trackChannel = channel % 16;
-    const startDelay = Math.max(0, delaySeconds) * 1000;
-    const onTimeout = setTimeout(() => {
-        synth.send([0x90 + trackChannel, note.midi, 127]);
-        const offTimeout = setTimeout(() => {
-            synth.send([0x80 + trackChannel, note.midi, 0]);
-        }, Math.max(10, note.duration * 1000));
-        scheduledTimeouts.push(offTimeout);
-    }, startDelay);
-    scheduledTimeouts.push(onTimeout);
-}
-
-async function startPlayback() {
-    if (!currentMidi || isPlaying) return;
-    await ensureSynth();
-    stopAllSynthNotes();
-    isPlaying = true;
-    playStartSeconds = getCurrentSeconds();
-    playStartWall = performance.now();
-    $("play-btn").textContent = "⏸ Pause";
-    requestAnimationFrame(playbackFrame);
-}
-
-function pausePlayback() {
-    if (!isPlaying) return;
-    const elapsed = (performance.now() - playStartWall) / 1000;
-    const current = playStartSeconds + elapsed;
-    isPlaying = false;
-    stopAllSynthNotes();
-    $("play-btn").textContent = "▶ Play";
-    setCurrentSeconds(current);
-}
-
-function stopPlayback() {
-    isPlaying = false;
-    stopAllSynthNotes();
-    $("play-btn").textContent = "▶ Play";
-}
-
-function restartPlaybackFromCurrent() {
-    if (!isPlaying) return;
-    stopAllSynthNotes();
-    playStartSeconds = getCurrentSeconds();
-    playStartWall = performance.now();
-}
-
-function playbackFrame() {
-    if (!isPlaying || !currentMidi) return;
-
-    const elapsed = (performance.now() - playStartWall) / 1000;
-    const current = playStartSeconds + elapsed;
-    const max = Number(timeSlider.max) || 0;
-
-    if (current >= max) {
-        setCurrentSeconds(max, true);
-        stopPlayback();
-        return;
-    }
-
-    setCurrentSeconds(current, true);
-    syncScrollToPlayhead();
-
-    const lookahead = 0.085;
-    const from = current;
-    const to = current + lookahead;
-
-    for (const track of editorTracks) {
-        if (!track.enabled || track.role === "IGNORE") continue;
-        for (const note of track.notes) {
-            if (note.time >= from && note.time < to) {
-                schedulePreviewNote(note, track.channel, note.time - current);
-            }
-        }
-    }
-
-    requestAnimationFrame(playbackFrame);
-}
-
-$("play-btn").addEventListener("click", async () => {
-    if (isPlaying) pausePlayback();
-    else await startPlayback();
-});
-
-$("stop-btn").addEventListener("click", () => {
-    stopPlayback();
-    setCurrentSeconds(0);
-});
-
-$("rewind-btn").addEventListener("click", () => {
-    stopPlayback();
-    setCurrentSeconds(0);
-});
-
-/* ============================================================
-   TIMELINE RENDERER
-   ============================================================ */
-
-function drawTimeline() {
-    if (!currentMidi) return;
-
-    const zoom = Number(zoomSlider.value);
-    const duration = Number(timeSlider.max) || 1;
-    const width = Math.max(1200, Math.ceil(duration * zoom) + 300);
-    const height = 520;
-
-    timelineCanvas.width = width;
-    timelineCanvas.height = height;
-
-    const ctx = timelineCanvas.getContext("2d");
-    ctx.fillStyle = "#111";
-    ctx.fillRect(0, 0, width, height);
-
-    const current = getCurrentSeconds();
-
-    /* Registration lane */
-    const regLaneH = 38;
-    ctx.fillStyle = "#191919";
-    ctx.fillRect(0, 0, width, regLaneH);
-    ctx.strokeStyle = "#333";
-    ctx.strokeRect(0, 0, width, regLaneH);
-
-    for (const event of registerEvents) {
-        const x = event.time * zoom;
-        if (event.type === "CANCEL_REGISTERS") {
-            ctx.fillStyle = "#c74634";
-            ctx.fillRect(x - 2, 3, 4, regLaneH - 6);
-        } else {
-            const register = getRegister(event.register);
-            ctx.fillStyle = register?.trackerHole === null ? "#8557b7" : "#39b76a";
-            ctx.fillRect(x - 2, 3, 4, regLaneH - 6);
-        }
-    }
-
-    /* Time grid */
-    const gridStart = Math.floor(0);
-    const pixelsPerBeat = zoom / 2;
-    const gridStep = Math.max(0.25, 1 / Math.max(1, Math.round(zoom / 70)));
-    const bpm = currentMidi.header?.tempos?.[0]?.bpm || 120;
-    const secondsPerBeat = 60 / bpm;
-    let firstGrid = 0;
-    const stepSeconds = secondsPerBeat * gridStep;
-
-    ctx.lineWidth = 1;
-    for (let t = firstGrid; t <= duration; t += stepSeconds) {
-        const x = t * zoom;
-        const isBeat = Math.abs((t / secondsPerBeat) - Math.round(t / secondsPerBeat)) < 0.0001;
-        ctx.strokeStyle = isBeat ? "#373737" : "#252525";
-        ctx.beginPath();
-        ctx.moveTo(x, regLaneH);
-        ctx.lineTo(x, height);
-        ctx.stroke();
-    }
-
-    /* Pitch range */
-    let minNote = 127;
-    let maxNote = 0;
-    for (const track of editorTracks) {
-        if (!track.enabled) continue;
-        for (const note of track.notes) {
-            minNote = Math.min(minNote, note.midi);
-            maxNote = Math.max(maxNote, note.midi);
-        }
-    }
-    if (minNote > maxNote) { minNote = 48; maxNote = 84; }
-    const pitchRows = Math.max(1, maxNote - minNote + 1);
-    const noteAreaTop = regLaneH + 25;
-    const noteAreaBottom = height - 8;
-    const noteAreaHeight = noteAreaBottom - noteAreaTop;
-    const noteH = Math.max(3, Math.min(13, noteAreaHeight / pitchRows - 1));
-
-    for (let midi = minNote; midi <= maxNote; midi++) {
-        const row = midi - minNote;
-        const y = noteAreaBottom - (row + 1) * (noteH + 1);
-        if (midi % 12 === 0) {
-            ctx.strokeStyle = "#303030";
-            ctx.beginPath();
-            ctx.moveTo(0, y + noteH + 1);
-            ctx.lineTo(width, y + noteH + 1);
-            ctx.stroke();
-        }
-    }
-
-    const trackPalette = [
-        "#e74c3c", "#2ecc71", "#f1c40f", "#3498db",
-        "#9b59b6", "#e67e22", "#1abc9c", "#8e44ad",
-        "#48dbfb", "#ff9f43", "#ff6b6b", "#54a0ff"
-    ];
-
-    editorTracks.forEach((track, index) => {
-        if (!track.enabled || track.role === "IGNORE") return;
-        ctx.fillStyle = trackPalette[index % trackPalette.length];
-        for (const note of track.notes) {
-            const x = note.time * zoom;
-            const w = Math.max(2, note.duration * zoom);
-            if (x + w < 0 || x > width) continue;
-            const row = note.midi - minNote;
-            const y = noteAreaBottom - (row + 1) * (noteH + 1);
-            ctx.fillRect(x, y, w, noteH);
-        }
-    });
-
-    /* Playhead */
-    const playheadX = current * zoom;
-    ctx.strokeStyle = "#1683ff";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(playheadX, 0);
-    ctx.lineTo(playheadX, height);
-    ctx.stroke();
-
-    /* Current top marker */
-    ctx.fillStyle = "#1683ff";
-    ctx.beginPath();
-    ctx.moveTo(playheadX, 0);
-    ctx.lineTo(playheadX - 6, 0);
-    ctx.lineTo(playheadX + 6, 0);
-    ctx.closePath();
-    ctx.fill();
-
-    timelineCanvas.title = "Scroll horizontally to inspect the MIDI timeline. The playhead is controlled by the scrubber above.";
-}
-
-/* ============================================================
-   ORGAN NORMALIZATION
-   ============================================================
-*/
-
-function mapNoteToTracker(noteMidi, role) {
-    let firstMidi;
-    let firstHole;
-    let lastHole;
-
-    if (role === "BASS") {
-        firstMidi = getBassFirstMidi();
-        firstHole = TRACKER.BASS_FIRST;
-        lastHole = TRACKER.BASS_LAST;
-    } else if (role === "ACCOMPANIMENT") {
-        firstMidi = getAccompFirstMidi();
-        firstHole = TRACKER.ACCOMP_FIRST;
-        lastHole = TRACKER.ACCOMP_LAST;
-    } else if (role === "MELODY") {
-        firstMidi = getMelodyFirstMidi();
-        firstHole = TRACKER.MELODY_FIRST;
-        lastHole = TRACKER.MELODY_LAST;
-    } else {
-        return null;
-    }
-
-    const hole = firstHole + (noteMidi - firstMidi);
-    if (hole < firstHole || hole > lastHole) return null;
-    return hole;
-}
-
-function mapPercussionNoteToHoles(midiNote) {
-    if (midiNote === DEFAULT_PERCUSSION_NOTES.SNARE_WOODBLOCK) {
-        mapPercussionNoteToHoles.side ??= 0;
-        const holes = mapPercussionNoteToHoles.side % 2 === 0
-            ? [TRACKER.SNARE_RIGHT, TRACKER.WOOD_BLOCK_RIGHT]
-            : [TRACKER.SNARE_LEFT, TRACKER.WOOD_BLOCK_LEFT];
-        mapPercussionNoteToHoles.side++;
-        return holes;
-    }
-    if (midiNote === DEFAULT_PERCUSSION_NOTES.TRIANGLE) return [TRACKER.TRIANGLE];
-    if (midiNote === DEFAULT_PERCUSSION_NOTES.CYMBAL) return [TRACKER.CYMBAL];
-    if (midiNote === DEFAULT_PERCUSSION_NOTES.BASS_DRUM) return [TRACKER.BASS_DRUM];
-    return [];
-}
-
-function buildNormalizedEvents() {
-    mapPercussionNoteToHoles.side = 0;
-    const result = [];
-    const noteWarnings = [];
-
-    for (const track of editorTracks) {
-        if (!track.enabled || track.role === "IGNORE") continue;
-
-        for (const note of track.notes) {
-            const time = Number(note.time) || 0;
-            const duration = Math.max(0, Number(note.duration) || 0);
-            if (duration <= 0) continue;
-
-            if (track.role === "PERCUSSION") {
-                const holes = mapPercussionNoteToHoles(note.midi);
-                if (!holes.length) {
-                    noteWarnings.push(`${track.name}: unmapped percussion MIDI ${note.midi}`);
-                    continue;
-                }
-                result.push({
-                    type: "PERCUSSION",
-                    time,
-                    duration,
-                    midiNote: note.midi,
-                    sourceTrack: track.name,
-                    sourceChannel: track.channel,
-                    division: "PERCUSSION",
-                    trackerHoles: holes
-                });
-                continue;
-            }
-
-            const hole = mapNoteToTracker(note.midi, track.role);
-            if (hole === null) {
-                noteWarnings.push(`${track.name}: MIDI ${note.midi} is outside the ${track.role} tracker range`);
-                continue;
-            }
-
-            result.push({
-                type: "NOTE",
-                time,
-                duration,
-                midiNote: note.midi,
-                sourceTrack: track.name,
-                sourceChannel: track.channel,
-                division: track.role,
-                trackerHoles: [hole]
-            });
-        }
-    }
-
-    result.sort((a, b) => a.time - b.time);
-    result.warnings = [...new Set(noteWarnings)];
-    return result;
-}
-
-/* ============================================================
-   COMMON TRACKER EVENT STREAM
-   ============================================================
-*/
-
-function buildTrackerEventStream(normalizedEvents) {
-    const output = [];
-    const firstMusicalTime = normalizedEvents.length
-        ? Math.min(...normalizedEvents.map(e => e.time))
-        : 0;
-
-    /* Register commands */
-    for (const event of registerEvents) {
-        const register = event.type === "REGISTER_ON" ? getRegister(event.register) : null;
-        const hole = event.type === "CANCEL_REGISTERS"
-            ? TRACKER.CANCEL_REGISTERS
-            : register?.trackerHole ?? getFlageoletHole();
-
-        /* Flageolet cannot be rendered physically until its hole is specified. */
-        if (!hole) continue;
-
-        output.push({
-            hole,
-            state: 1,
-            time: Math.max(0, event.time - firstMusicalTime),
-            kind: "CONTROL"
-        });
-        output.push({
-            hole,
-            state: 0,
-            time: Math.max(0, event.time - firstMusicalTime + CONTROL_PULSE_SECONDS),
-            kind: "CONTROL"
-        });
-    }
-
-    /* Notes and percussion */
-    for (const event of normalizedEvents) {
-        const start = Math.max(0, event.time - firstMusicalTime);
-        const end = Math.max(start, start + event.duration);
-        const pulse = event.type === "PERCUSSION" ? PERCUSSION_PULSE_SECONDS : null;
-
-        for (const hole of event.trackerHoles) {
-            output.push({ hole, state: 1, time: start, kind: event.type });
-            output.push({
-                hole,
-                state: 0,
-                time: pulse !== null ? Math.min(end, start + pulse) : end,
-                kind: event.type
-            });
-        }
-    }
-
-    output.sort((a, b) => (a.time - b.time) || (a.state - b.state) || (a.hole - b.hole));
-    return output;
-}
-
-/* ============================================================
-   ORGAN STRING EXPORT
-   ============================================================
-*/
-
-function buildOrganString(normalizedEvents) {
-    const stream = buildTrackerEventStream(normalizedEvents);
-    if (!stream.length) return "";
-
-    const segments = [];
-    let lastTime = 0;
-
-    let index = 0;
-    while (index < stream.length) {
-        const currentTime = stream[index].time;
-        const bucket = [];
-
-        while (index < stream.length && Math.abs(stream[index].time - currentTime) < 0.0000005) {
-            bucket.push(stream[index]);
-            index++;
-        }
-
-        const deltaMs = Math.max(0, Math.round((currentTime - lastTime) * 1000));
-        const values = [];
-        for (const event of bucket) {
-            values.push(event.state ? String(event.hole) : String(-event.hole));
-        }
-
-        if (values.length) {
-            segments.push(`${deltaMs},${values.join(",")}`);
-            lastTime = currentTime;
-        }
-    }
-
-    return segments.join("|");
-}
-
-/* ============================================================
-   GENERATED MIDI
-   ============================================================
-*/
-
-function buildGeneratedMidi(normalizedEvents) {
-    const output = new Midi();
-    const tracks = {};
-
-    OUTPUT_TRACKS.forEach((name, index) => {
-        const track = output.addTrack();
-        track.name = name;
-        track.channel = index === 9 ? 9 : index;
-        tracks[name] = track;
-    });
-
-    /* Bass */
-    normalizedEvents
-        .filter(e => e.type === "NOTE" && e.division === "BASS")
-        .forEach(e => {
-            tracks.Bass.addNote({ midi: e.midiNote, time: e.time, duration: e.duration, velocity: FIXED_MIDI_VELOCITY });
-        });
-
-    /* Accompaniment */
-    normalizedEvents
-        .filter(e => e.type === "NOTE" && e.division === "ACCOMPANIMENT")
-        .forEach(e => {
-            tracks.Accompaniment.addNote({ midi: e.midiNote, time: e.time, duration: e.duration, velocity: FIXED_MIDI_VELOCITY });
-        });
-
-    /* Melody is distributed according to register state at note start. */
-    const melodyEvents = normalizedEvents.filter(e => e.type === "NOTE" && e.division === "MELODY");
-
-    for (const event of melodyEvents) {
-        const active = registerStateAtTime(event.time);
-        for (const registerName of active) {
-            const register = getRegister(registerName);
-            if (!register) continue;
-            tracks[register.outputTrack].addNote({
-                midi: event.midiNote,
-                time: event.time,
-                duration: event.duration,
-                velocity: FIXED_MIDI_VELOCITY
-            });
-        }
-    }
-
-    /* Percussion stays one input/output track. */
-    normalizedEvents
-        .filter(e => e.type === "PERCUSSION")
-        .forEach(e => {
-            tracks.Percussion.addNote({
-                midi: e.midiNote,
-                time: e.time,
-                duration: e.duration,
-                velocity: FIXED_MIDI_VELOCITY
-            });
-        });
-
-    return output;
-}
-
-/* ============================================================
-   PAPER ROLL
-   ============================================================
-*/
-
-function drawPunch(ctx, x, y, width, height) {
-    if (typeof ctx.roundRect === "function") {
-        ctx.beginPath();
-        ctx.roundRect(x, y, width, Math.max(width, height), width / 2);
-        ctx.fill();
-    } else {
-        ctx.fillRect(x, y, width, Math.max(width, height));
-    }
-}
-
-function renderPaperRoll(normalizedEvents) {
-    const raw = buildTrackerEventStream(normalizedEvents);
-    if (!raw.length) return 0;
-
-    const maxY = Math.max(...raw.map(e => e.time * PAPER_PX_PER_SECOND));
-    const maxHoleHeight = Math.max(
-        PERCUSSION_PULSE_SECONDS * PAPER_PX_PER_SECOND,
-        CONTROL_PULSE_SECONDS * PAPER_PX_PER_SECOND,
-        1
-    );
-    const totalHeight = Math.max(1, maxY + maxHoleHeight + 200);
-    const pageCount = Math.max(1, Math.ceil(totalHeight / CANVAS_HEIGHT));
-
-    generatedCanvases = [];
-    $("roll-pages").innerHTML = "";
-
-    for (let pageIndex = 0; pageIndex < pageCount; pageIndex++) {
-        const canvas = document.createElement("canvas");
-        canvas.width = CANVAS_WIDTH;
-        canvas.height = CANVAS_HEIGHT;
-        const ctx = canvas.getContext("2d");
-
-        ctx.fillStyle = "#fbf6eb";
-        ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-
-        ctx.strokeStyle = "rgba(210,190,160,.38)";
-        ctx.lineWidth = 1;
-        for (let i = 0; i <= TRACKER_HOLES; i++) {
-            const x = TRACKER_MARGIN_X + i * TRACK_WIDTH;
-            ctx.beginPath();
-            ctx.moveTo(x, 0);
-            ctx.lineTo(x, CANVAS_HEIGHT);
-            ctx.stroke();
-        }
-
-        /* Mirror horizontally like the existing roll renderer. */
-        const punchLayer = document.createElement("canvas");
-        punchLayer.width = CANVAS_WIDTH;
-        punchLayer.height = CANVAS_HEIGHT;
-        const punchCtx = punchLayer.getContext("2d");
-        punchCtx.fillStyle = "#111";
-
-        const pageStart = pageIndex * CANVAS_HEIGHT;
-        const pageEnd = pageStart + CANVAS_HEIGHT;
-
-        let activeByHole = new Map();
-        const punched = [];
-        for (const event of raw) {
-            const y = event.time * PAPER_PX_PER_SECOND;
-            const x = TRACKER_MARGIN_X + (event.hole - 1) * TRACK_WIDTH + 2;
-            const w = TRACK_WIDTH - 4;
-
-            if (event.state === 1) {
-                activeByHole.set(event.hole, { y, kind: event.kind });
-            } else {
-                const start = activeByHole.get(event.hole);
-                if (!start) continue;
-                activeByHole.delete(event.hole);
-                if (y < pageStart || start.y > pageEnd) continue;
-                punched.push({ x, y: start.y, width: w, height: Math.max(2, y - start.y) });
-            }
-        }
-
-        punchCtx.save();
-        punchCtx.translate(CANVAS_WIDTH, 0);
-        punchCtx.scale(-1, 1);
-        for (const p of punched) {
-            const renderY = p.y - pageStart;
-            if (renderY + p.height < 0 || renderY > CANVAS_HEIGHT) continue;
-            drawPunch(punchCtx, p.x, renderY, p.width, p.height);
-        }
-        punchCtx.restore();
-
-        /* Composite the punch layer as dark holes for reliable preview/download. */
-        ctx.drawImage(punchLayer, 0, 0);
-
-        const shell = document.createElement("div");
-        shell.className = "canvas-shell";
-        shell.appendChild(canvas);
-        $("roll-pages").appendChild(shell);
-
-        const label = document.createElement("div");
-        label.className = "page-label";
-        label.textContent = `Roll Page ${pageIndex + 1} of ${pageCount}`;
-        $("roll-pages").appendChild(label);
-
-        generatedCanvases.push(canvas);
-    }
-
-    return pageCount;
-}
-
-/* ============================================================
-   COMPILE
-   ============================================================
-*/
-
-$("compile-btn").addEventListener("click", () => {
-    if (!currentMidi) {
-        alert("Open a MIDI file first.");
-        return;
-    }
-
-    try {
-        setStatus("Compiling the common organ event stream...");
-        const normalizedEvents = buildNormalizedEvents();
-        generatedString = buildOrganString(normalizedEvents);
-        generatedMidi = buildGeneratedMidi(normalizedEvents);
-        const pageCount = renderPaperRoll(normalizedEvents);
-
-        currentCompile = { normalizedEvents, pageCount };
-
-        $("string-output").value = generatedString;
-        $("stat-tracks").textContent = editorTracks.length;
-        $("stat-enabled").textContent = editorTracks.filter(t => t.enabled).length;
-        $("stat-events").textContent = normalizedEvents.length;
-        $("stat-register-events").textContent = registerEvents.length;
-        $("stat-pages").textContent = pageCount;
-
-        $("summary-panel").classList.remove("hidden");
-        $("outputs-panel").classList.remove("hidden");
-        $("roll-panel").classList.remove("hidden");
-
-        const warnings = normalizedEvents.warnings || [];
-        const flageoletWarning = activeRegisterNamesUsed().includes("Flageolet") && !getFlageoletHole();
-        if (flageoletWarning) {
-            setStatus(`Compiled ${normalizedEvents.length} event(s) into ${pageCount} page(s). Flageolet audio/MIDI output is included; its physical tracker hole is still unspecified.`);
-        } else if (warnings.length) {
-            setStatus(`Compiled with ${warnings.length} unmapped input-note warning(s).`);
-        } else {
-            setStatus(`Compilation complete: ${normalizedEvents.length} organ event(s), ${pageCount} paper-roll page(s).`);
-        }
-
-    } catch (error) {
-        console.error(error);
-        setStatus(`Compilation failed: ${error.message}`);
-        alert(`Compilation failed.\n\n${error.message}`);
-    }
-});
-
-function activeRegisterNamesUsed() {
-    return [...new Set(registerEvents.filter(e => e.type === "REGISTER_ON").map(e => e.register))];
-}
-
-/* ============================================================
-   OUTPUT DOWNLOADS
-   ============================================================
-*/
-
-function downloadBlob(blob, filename) {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
-$("copy-string-btn").addEventListener("click", async () => {
-    if (!generatedString) return;
-    try {
-        await navigator.clipboard.writeText(generatedString);
-        setStatus("Organ string data copied to clipboard.");
-    } catch {
-        $("string-output").select();
-        document.execCommand("copy");
-        setStatus("Organ string data copied.");
-    }
-});
-
-$("download-string-btn").addEventListener("click", () => {
-    if (!generatedString) return;
-    downloadBlob(
-        new Blob([generatedString], { type: "text/plain;charset=utf-8" }),
-        cleanFilename(outputNameInput.value) + "-organ-string.txt"
-    );
-});
-
-$("download-midi-btn").addEventListener("click", () => {
-    if (!generatedMidi) return;
-    const bytes = generatedMidi.toArray();
-    downloadBlob(
-        new Blob([bytes], { type: "audio/midi" }),
-        cleanFilename(outputNameInput.value) + "-organ.mid"
-    );
-});
-
-$("download-roll-btn").addEventListener("click", () => {
-    if (!generatedCanvases.length) return;
-    const base = cleanFilename(outputNameInput.value);
-    generatedCanvases.forEach((canvas, index) => {
-        setTimeout(() => {
-            canvas.toBlob(blob => {
-                if (blob) downloadBlob(blob, `${base}-roll-page-${index + 1}.png`);
-            }, "image/png");
-        }, index * 250);
-    });
-});
-
-/* ============================================================
-   SETTINGS REFRESH
-   ============================================================
-*/
-
-["bass-first-midi", "accomp-first-midi", "melody-first-midi", "flageolet-hole"].forEach(id => {
-    $(id).addEventListener("input", () => {
-        if (currentMidi) drawTimeline();
-    });
-});
-
-/* Initial register UI before a file is opened. */
-buildRegisterUI();
-renderHistory();
+function downloadBlob(blob,name){const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+
+$('midi-file').addEventListener('change',()=>{const f=$('midi-file').files[0];$('open-btn').disabled=!f;if(f&&!$('file-name').value.trim())$('file-name').value=safeName(f.name);});
+$('open-btn').onclick=openMidiEditor;
+$('reset-btn').onclick=()=>{registrationEvents=[];undoStack=[];redoStack=[];cursorSec=0;renderAll();updateHistoryButtons();};
+$('all-on-btn').onclick=()=>{tracks.forEach(t=>t.enabled=true);renderTracks();renderTimeline();};
+$('all-off-btn').onclick=()=>{tracks.forEach(t=>t.enabled=false);renderTracks();renderTimeline();};
+$('play-btn').onclick=startPlayback;$('pause-btn').onclick=pausePlayback;$('stop-btn').onclick=stopPlayback;
+$('undo-btn').onclick=undo;$('redo-btn').onclick=redo;
+$('cancel-registers').onclick=addCancel;$('generate-btn').onclick=generateOutputs;
+$('copy-string').onclick=async()=>{if(!generatedString)return;try{await navigator.clipboard.writeText(generatedString);setStatus('Organ string data copied.');}catch{ $('string-output').select();document.execCommand('copy');setStatus('Organ string data copied.');}};
+$('download-string').onclick=()=>{if(generatedString)downloadBlob(new Blob([generatedString],{type:'text/plain'}),safeName($('file-name').value)+'-organ-string.txt');};
+$('download-midi').onclick=()=>{if(generatedMidi)downloadBlob(new Blob([generatedMidi.toArray()],{type:'audio/midi'}),safeName($('file-name').value)+'-fairground-organ.mid');};
+$('download-source-btn').onclick=()=>{if(!midi)return;downloadBlob(new Blob([midi.toArray()],{type:'audio/midi'}),safeName($('file-name').value)+'-edited-source.mid');};
+$('download-roll').onclick=()=>{if(!canvases.length)return;const base=safeName($('file-name').value);canvases.forEach((c,i)=>setTimeout(()=>c.toBlob(b=>b&&downloadBlob(b,`${base}-roll-page-${i+1}.png`),'image/png'),i*250));};
+window.addEventListener('resize',()=>{if(midi)renderTimeline();});
+window.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){e.preventDefault();e.shiftKey?redo():undo();}else if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='y'){e.preventDefault();redo();}else if(e.code==='Space'&&!e.target.matches('input,textarea,select')){e.preventDefault();playing?pausePlayback():startPlayback();}});
+
+function renderAll(){if(!midi)return;renderTracks();renderRegisters();updateCursorUI();updateHistoryButtons();renderTimeline();}
 
 </script>
 </body>
