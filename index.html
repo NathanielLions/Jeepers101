@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Fairground Organ MIDI Compiler v3</title>
+<title>Fairground Organ MIDI Compiler v5</title>
 <script src="https://unpkg.com/@tonejs/midi"></script>
 <style>
 :root{--bg:#171717;--panel:#242424;--panel2:#1c1c1c;--border:#3d3d3d;--text:#eee;--muted:#aaa;--blue:#1677d2;--green:#2e9f56;--red:#b83b3b;--orange:#c98721;--timeline:#111;--grid:#2d2d2d;--playhead:#32a5ff;--paper:#fbf7f0}
@@ -33,7 +33,7 @@ input[type=text]{min-width:240px}.btns{display:flex;gap:8px;flex-wrap:wrap}butto
 <body>
 <div class="container">
     <div class="panel">
-        <h1>Fairground Organ MIDI Compiler v3</h1>
+        <h1>Fairground Organ MIDI Compiler v5</h1>
         <p style="margin:0">MIDI editor + registration timeline + 101-hole tracker roll + organ string data + 10-track organ MIDI.</p>
         <div class="controls" style="margin-top:12px">
             <div class="field"><label>MIDI FILE</label><input id="midi-file" type="file" accept=".mid,.midi"></div>
@@ -42,7 +42,7 @@ input[type=text]{min-width:240px}.btns{display:flex;gap:8px;flex-wrap:wrap}butto
         </div>
         <div id="format-badge" style="margin-top:10px"></div>
         <div class="legend">
-            <span>Source Ch 1 = Bass</span><span>Source Ch 2 = Accompaniment</span><span>Source Ch 3 = Melody</span><span>Source Ch 10 = Percussion</span>
+            <span>Source Ch 1 = Bass</span><span>Source Ch 2 = Accompaniment</span><span>Source Ch 3 = Melody</span><span>Source Ch 10 = Percussion</span><span>Cello = Bass</span><span>Forte = Bass + Melody</span><span>Other registers = Melody</span>
             <span>Output Ch 1–10 = organ outputs</span>
         </div>
         <div id="status" class="status"></div>
@@ -94,7 +94,7 @@ input[type=text]{min-width:240px}.btns{display:flex;gap:8px;flex-wrap:wrap}butto
         <h2>Exports</h2>
         <div class="output-grid">
             <div class="output-box"><h3>Organ String Data</h3><textarea id="string-output" readonly placeholder="Generated tracker-hole string will appear here..."></textarea><div class="btns" style="margin-top:8px"><button id="copy-string" class="green">Copy String</button><button id="download-string" class="gray">Download String</button></div></div>
-            <div class="output-box"><h3>Generated Organ MIDI</h3><p class="note">Exactly 10 tracks: Bass, Cello, Accompaniment, Forte, Violin, Flute, Flageolet, Bourdon, Glockenspiel, Percussion. Input velocities are ignored; generated note velocity is fixed at 127.</p><button id="download-midi" class="green">Download Organ MIDI</button></div>
+            <div class="output-box"><h3>Generated Organ MIDI</h3><p class="note">Exactly 10 organ output tracks. Cello receives Bass; Forte receives Bass + Melody; Violin/Flute/Flageolet/Bourdon/Glockenspiel receive Melody. Input velocity is ignored and output notes use a fixed velocity.</p><button id="download-midi" class="green">Download Organ MIDI</button></div>
         </div>
     </div>
 
@@ -108,7 +108,7 @@ input[type=text]{min-width:240px}.btns{display:flex;gap:8px;flex-wrap:wrap}butto
 
 <script>
 /* ============================================================
-   FAIRGROUND ORGAN COMPILER V3
+   FAIRGROUND ORGAN COMPILER V5
    - Source MIDI: Ch1 Bass, Ch2 Accompaniment, Ch3 Melody, Ch10 Percussion.
    - Output MIDI: Ch1 Bass, Ch2 Cello, Ch3 Accompaniment, Ch4 Forte,
      Ch5 Violin, Ch6 Flute, Ch7 Flageolet, Ch8 Bourdon,
@@ -128,7 +128,17 @@ const FIXED_VELOCITY = 127;
 
 const SOURCE_CHANNEL_ROLES = {0:'BASS',1:'ACCOMPANIMENT',2:'MELODY',9:'PERCUSSION'};
 const OUTPUT_TRACKS = ['Bass','Cello','Accompaniment','Forte','Violin','Flute','Flageolet','Bourdon','Glockenspiel','Percussion'];
+const OUTPUT_PROGRAMS = {Bass:43,Cello:42,Accompaniment:18,Forte:57,Violin:40,Flute:73,Flageolet:75,Bourdon:19,Glockenspiel:8,Percussion:0};
 const REGISTER_NAMES = ['Cello','Flute','Glockenspiel','Bourdon','Violin','Flageolet','Forte'];
+const REGISTER_DIVISIONS = {
+  Cello:['BASS'],
+  Forte:['BASS','MELODY'],
+  Violin:['MELODY'],
+  Flute:['MELODY'],
+  Flageolet:['MELODY'],
+  Bourdon:['MELODY'],
+  Glockenspiel:['MELODY']
+};
 const REGISTER_TRACK_TO_NAME = {'Cello':'Cello','Forte':'Forte','Violin':'Violin','Flute':'Flute','Flageolet':'Flageolet','Bourdon':'Bourdon','Glockenspiel':'Glockenspiel'};
 const OUTPUT_INDEX_BY_NAME = Object.fromEntries(OUTPUT_TRACKS.map((x,i)=>[x,i]));
 
@@ -349,22 +359,77 @@ $('timeline-canvas').addEventListener('pointerdown',e=>{const r=e.currentTarget.
 
 function midiNotesForPreview(){
   const out=[];
+
+  // ------------------------------------------------------------
+  // ORGAN-OUTPUT MIDI
+  // ------------------------------------------------------------
+  // If the uploaded file is already in the 10-track organ format,
+  // audition exactly those output tracks.
   if(sourceMode==='ORGAN_OUTPUT'){
-    tracks.forEach(t=>{if(!t.enabled)return;const outputName=OUTPUT_TRACKS.find(n=>n.toLowerCase()===t.name.toLowerCase());if(!outputName)return;for(const n of t.notes){out.push({time:n.time,duration:n.duration,midi:n.midi,kind:outputName,percussion:outputName==='Percussion'});}});
+    tracks.forEach(t=>{
+      if(!t.enabled)return;
+      const outputName=OUTPUT_TRACKS.find(n=>n.toLowerCase()===t.name.toLowerCase());
+      if(!outputName)return;
+      for(const n of t.notes){
+        out.push({
+          time:n.time,
+          duration:n.duration,
+          midi:n.midi,
+          kind:outputName,
+          percussion:outputName==='Percussion'
+        });
+      }
+    });
     return out;
   }
+
+  // ------------------------------------------------------------
+  // SOURCE MIDI
+  // ------------------------------------------------------------
+  // Source format is fixed:
+  // Channel 1 = Bass
+  // Channel 2 = Accompaniment
+  // Channel 3 = Melody
+  // Channel 10 = Percussion
+  //
+  // Bass and Accompaniment remain audible as their own divisions.
+  // Register sounds are layered according to the registration state.
   tracks.forEach(t=>{
     if(!t.enabled)return;
-    if(t.role==='BASS') t.notes.forEach(n=>out.push({time:n.time,duration:n.duration,midi:n.midi,kind:'Bass'}));
-    else if(t.role==='ACCOMPANIMENT') t.notes.forEach(n=>out.push({time:n.time,duration:n.duration,midi:n.midi,kind:'Accompaniment'}));
-    else if(t.role==='PERCUSSION') t.notes.forEach(n=>out.push({time:n.time,duration:n.duration,midi:n.midi,kind:'Percussion',percussion:true}));
-    else if(t.role==='MELODY'){
+
+    if(t.role==='BASS'){
       t.notes.forEach(n=>{
-        const state=registerStateAt(n.time);
-        state.forEach(reg=>out.push({time:n.time,duration:n.duration,midi:n.midi,kind:reg}));
+        out.push({time:n.time,duration:n.duration,midi:n.midi,kind:'Bass'});
+        const state=Array.from(registerStateAt(n.time));
+        state.forEach(reg=>{
+          if(!(REGISTER_DIVISIONS[reg]||[]).includes('BASS'))return;
+          out.push({time:n.time,duration:n.duration,midi:n.midi,kind:reg});
+        });
       });
+      return;
+    }
+
+    if(t.role==='ACCOMPANIMENT'){
+      t.notes.forEach(n=>out.push({time:n.time,duration:n.duration,midi:n.midi,kind:'Accompaniment'}));
+      return;
+    }
+
+    if(t.role==='MELODY'){
+      t.notes.forEach(n=>{
+        const state=Array.from(registerStateAt(n.time));
+        state.forEach(reg=>{
+          if(!(REGISTER_DIVISIONS[reg]||[]).includes('MELODY'))return;
+          out.push({time:n.time,duration:n.duration,midi:n.midi,kind:reg});
+        });
+      });
+      return;
+    }
+
+    if(t.role==='PERCUSSION'){
+      t.notes.forEach(n=>out.push({time:n.time,duration:n.duration,midi:n.midi,kind:'Percussion',percussion:true}));
     }
   });
+
   return out;
 }
 
@@ -374,10 +439,22 @@ function stopAllAudio(){
 function ensureAudio(){if(!audioCtx)audioCtx=new (window.AudioContext||window.webkitAudioContext)();if(audioCtx.state==='suspended')audioCtx.resume();}
 function toneConfig(kind){
   const configs={
-    Bass:{type:'triangle',gain:.16,mult:0.5},Accompaniment:{type:'square',gain:.07,mult:1},
-    Cello:{type:'sawtooth',gain:.08,mult:1},Violin:{type:'sawtooth',gain:.065,mult:1},Flute:{type:'sine',gain:.10,mult:1},
-    Flageolet:{type:'sine',gain:.08,mult:2},Bourdon:{type:'triangle',gain:.09,mult:.5},Glockenspiel:{type:'sine',gain:.08,mult:2},Forte:{type:'square',gain:.06,mult:1}
-  };return configs[kind]||configs.Accompaniment;
+    Bass:{type:'triangle',gain:.16,mult:.5},
+    Accompaniment:{type:'square',gain:.07,mult:1},
+
+    // Cello approximation for the browser preview.
+    Cello:{type:'sawtooth',gain:.10,mult:.5},
+
+    // Forte is the combined strong register; Trombone-like preview.
+    Forte:{type:'sawtooth',gain:.095,mult:1},
+
+    Violin:{type:'sawtooth',gain:.065,mult:1},
+    Flute:{type:'sine',gain:.10,mult:1},
+    Flageolet:{type:'sine',gain:.075,mult:2},
+    Bourdon:{type:'triangle',gain:.09,mult:.5},
+    Glockenspiel:{type:'sine',gain:.08,mult:2}
+  };
+  return configs[kind]||configs.Accompaniment;
 }
 function midiFreq(n){return 440*Math.pow(2,(n-69)/12);}
 function scheduleTone(note,when,kind,remainingDuration){
@@ -393,13 +470,71 @@ function scheduleNoise(when,duration,gainAmount=.12,filterFreq=1800){
 }
 function schedulePerc(note,when,duration){
   const n=note.midi;
+
+  // Bass drum family used by the supplied test MIDI (34/35).
   if(n===34||n===35||n===36){
-    const o=audioCtx.createOscillator(),g=audioCtx.createGain();o.type='sine';o.frequency.setValueAtTime(105,when);o.frequency.exponentialRampToValueAtTime(45,when+.11);g.gain.setValueAtTime(.28,when);g.gain.exponentialRampToValueAtTime(.0001,when+Math.max(.18,duration));o.connect(g);g.connect(audioCtx.destination);o.start(when);o.stop(when+Math.max(.2,duration));scheduledAudio.push(o,g);
-  }else if(n===38){scheduleNoise(when,Math.min(.14,Math.max(.07,duration)),.14,2400);}
-  else if(n===49){scheduleNoise(when,Math.min(.35,Math.max(.18,duration)),.12,5200);}
-  else if(n===76){const o=audioCtx.createOscillator(),g=audioCtx.createGain();o.type='square';o.frequency.value=580;g.gain.setValueAtTime(.12,when);g.gain.exponentialRampToValueAtTime(.0001,when+.10);o.connect(g);g.connect(audioCtx.destination);o.start(when);o.stop(when+.11);scheduledAudio.push(o,g);}
-  else if(n===81){const o=audioCtx.createOscillator(),g=audioCtx.createGain();o.type='triangle';o.frequency.value=1250;g.gain.setValueAtTime(.11,when);g.gain.exponentialRampToValueAtTime(.0001,when+.16);o.connect(g);g.connect(audioCtx.destination);o.start(when);o.stop(when+.17);scheduledAudio.push(o,g);}
+    const o=audioCtx.createOscillator();
+    const g=audioCtx.createGain();
+    o.type='sine';
+    o.frequency.setValueAtTime(110,when);
+    o.frequency.exponentialRampToValueAtTime(42,when+.12);
+    g.gain.setValueAtTime(.32,when);
+    g.gain.exponentialRampToValueAtTime(.0001,when+Math.max(.22,duration));
+    o.connect(g);g.connect(audioCtx.destination);
+    o.start(when);o.stop(when+Math.max(.24,duration));
+    scheduledAudio.push(o,g);
+    return;
+  }
+
+  // Note 38 is the special one-note snare/wood-block combination.
+  // Alternate RIGHT/LEFT exactly as the tracker translator does.
+  if(n===38){
+    scheduleNoise(when,.12,.14,2400);
+    const o=audioCtx.createOscillator();
+    const g=audioCtx.createGain();
+    o.type='square';
+    o.frequency.value=580;
+    g.gain.setValueAtTime(.08,when);
+    g.gain.exponentialRampToValueAtTime(.0001,when+.10);
+    o.connect(g);g.connect(audioCtx.destination);
+    o.start(when);o.stop(when+.11);
+    scheduledAudio.push(o,g);
+    return;
+  }
+
+  // Crash/cymbal.
+  if(n===49){
+    scheduleNoise(when,Math.min(.45,Math.max(.20,duration)),.15,5200);
+    return;
+  }
+
+  // Wood block.
+  if(n===76){
+    const o=audioCtx.createOscillator();
+    const g=audioCtx.createGain();
+    o.type='square';
+    o.frequency.value=580;
+    g.gain.setValueAtTime(.13,when);
+    g.gain.exponentialRampToValueAtTime(.0001,when+.10);
+    o.connect(g);g.connect(audioCtx.destination);
+    o.start(when);o.stop(when+.11);
+    scheduledAudio.push(o,g);
+    return;
+  }
+
+  // Triangle.
+  if(n===81){
+    const o=audioCtx.createOscillator();
+    const g=audioCtx.createGain();
+    o.type='triangle';
+    o.frequency.value=1250;
+    g.gain.setValueAtTime(.12,when);
+    g.gain.exponentialRampToValueAtTime(.0001,when+.17);
+    o.connect(g);g.connect(audioCtx.destination);
+    o.start(when);o.stop(when+.18);
+  }
 }
+
 function startPlayback(){
   if(playing)return; if(!midi)return; ensureAudio(); stopAllAudio();playing=true;playWallStart=performance.now();playCursorStart=cursorSec;updatePlayButtons();
   const start=cursorSec;const now=audioCtx.currentTime+.05;
@@ -426,80 +561,347 @@ function percussionHoles(midiNote){
   if(midiNote===PERCUSSION_INPUT.TRIANGLE)return [8];
   return [];
 }
+function uniqueSpanKey(hole,start,end,type){
+  return `${hole}|${Math.round(start*1000000)}|${Math.round(end*1000000)}|${type}`;
+}
+
 function physicalEvents(){
-  const spans=[];let ignored=0;alternatingSide=0;
-  // Registration punches first, independent of notes.
+  const spans=[];
+  let ignored=0;
+  alternatingSide=0;
+
+  // ------------------------------------------------------------
+  // REGISTRATION CONTROL EVENTS
+  // ------------------------------------------------------------
   registrationEvents.forEach(e=>{
-    if(e.type==='CANCEL') spans.push({hole:1,start:e.time,end:e.time+REGISTER_PULSE_MS/1000,type:'REGISTER'});
-    else {const h=REGISTER_TRACKER_HOLES[e.name];if(h!==null&&h!==undefined)spans.push({hole:h,start:e.time,end:e.time+REGISTER_PULSE_MS/1000,type:'REGISTER'});}
+    if(e.type==='CANCEL'){
+      spans.push({hole:1,start:e.time,end:e.time+REGISTER_PULSE_MS/1000,type:'REGISTER'});
+      return;
+    }
+
+    const hole=REGISTER_TRACKER_HOLES[e.name];
+    // Flageolet has no physical control hole in the supplied 1–14 map.
+    if(hole!==null&&hole!==undefined){
+      spans.push({hole,start:e.time,end:e.time+REGISTER_PULSE_MS/1000,type:'REGISTER'});
+    }
   });
+
+  // ------------------------------------------------------------
+  // SOURCE MIDI: physical tracker notes come from the three
+  // divisions, NOT from the active register outputs.
+  // ------------------------------------------------------------
   if(sourceMode==='SOURCE'){
     tracks.forEach(t=>{
       if(!t.enabled)return;
+
       if(t.role==='BASS'||t.role==='ACCOMPANIMENT'||t.role==='MELODY'){
-        const div=t.role;
-        t.notes.forEach(n=>{const h=trackerForMidi(n.midi,div);if(h===null){ignored++;return;}spans.push({hole:h,start:n.time,end:n.time+n.duration,type:'NOTE'});});
-      }else if(t.role==='PERCUSSION'){
-        t.notes.forEach(n=>{const holes=percussionHoles(n.midi);if(!holes.length){ignored++;return;}holes.forEach(h=>spans.push({hole:h,start:n.time,end:n.time+PERCUSSION_PULSE_MS/1000,type:'PERCUSSION'}));});
+        const division=t.role;
+        t.notes.forEach(n=>{
+          const hole=trackerForMidi(n.midi,division);
+          if(hole===null){ignored++;return;}
+          spans.push({hole,start:n.time,end:n.time+n.duration,type:'NOTE'});
+        });
+        return;
+      }
+
+      if(t.role==='PERCUSSION'){
+        t.notes.forEach(n=>{
+          const holes=percussionHoles(n.midi);
+          if(!holes.length){ignored++;return;}
+          holes.forEach(h=>spans.push({
+            hole:h,
+            start:n.time,
+            end:n.time+PERCUSSION_PULSE_MS/1000,
+            type:'PERCUSSION'
+          }));
+        });
       }
     });
-  }else{
+
+  } else {
+    // ----------------------------------------------------------
+    // ORGAN-OUTPUT MIDI
+    // ----------------------------------------------------------
+    // The generated organ MIDI contains register copies. For the
+    // physical roll, Bass and Accompaniment are canonical divisions,
+    // while Melody is reconstructed once from the melody-register
+    // tracks. Cello is a Bass register, so it is not a second Bass lane.
+    const melodySeen=new Set();
     tracks.forEach(t=>{
       if(!t.enabled)return;
-      if(t.role==='BASS'||t.role==='ACCOMPANIMENT'){
-        const div=t.role;t.notes.forEach(n=>{const h=trackerForMidi(n.midi,div);if(h===null){ignored++;return;}spans.push({hole:h,start:n.time,end:n.time+n.duration,type:'NOTE'});});
-      }else if(t.role==='REGISTER_OUTPUT'){
-        // Output MIDI has melody notes split by register. They still map to the melody division.
-        t.notes.forEach(n=>{const h=trackerForMidi(n.midi,'MELODY');if(h===null){ignored++;return;}spans.push({hole:h,start:n.time,end:n.time+n.duration,type:'NOTE'});});
-      }else if(t.role==='PERCUSSION'){
-        t.notes.forEach(n=>{const holes=percussionHoles(n.midi);if(!holes.length){ignored++;return;}holes.forEach(h=>spans.push({hole:h,start:n.time,end:n.time+PERCUSSION_PULSE_MS/1000,type:'PERCUSSION'}));});
+      const name=String(t.name||'').trim().toLowerCase();
+
+      if(name==='bass'){
+        t.notes.forEach(n=>{
+          const hole=trackerForMidi(n.midi,'BASS');
+          if(hole===null){ignored++;return;}
+          spans.push({hole,start:n.time,end:n.time+n.duration,type:'NOTE'});
+        });
+        return;
+      }
+
+      if(name==='accompaniment'){
+        t.notes.forEach(n=>{
+          const hole=trackerForMidi(n.midi,'ACCOMPANIMENT');
+          if(hole===null){ignored++;return;}
+          spans.push({hole,start:n.time,end:n.time+n.duration,type:'NOTE'});
+        });
+        return;
+      }
+
+      if(name==='percussion'){
+        t.notes.forEach(n=>{
+          const holes=percussionHoles(n.midi);
+          if(!holes.length){ignored++;return;}
+          holes.forEach(h=>spans.push({hole:h,start:n.time,end:n.time+PERCUSSION_PULSE_MS/1000,type:'PERCUSSION'}));
+        });
+        return;
+      }
+
+      // Cello's musical material is already represented by the Bass track.
+      if(name==='cello')return;
+
+      if(['forte','violin','flute','flageolet','bourdon','glockenspiel'].includes(name)){
+        t.notes.forEach(n=>{
+          // Forte contains both Bass and Melody output. Only its Melody
+          // notes belong in the Melody physical tracker division here.
+          const hole=trackerForMidi(n.midi,'MELODY');
+          if(hole===null)return;
+          const key=`${hole}|${Math.round(n.time*1000000)}|${Math.round((n.time+n.duration)*1000000)}`;
+          if(melodySeen.has(key))return;
+          melodySeen.add(key);
+          spans.push({hole,start:n.time,end:n.time+n.duration,type:'NOTE'});
+        });
       }
     });
   }
-  spans.sort((a,b)=>a.start-b.start||a.hole-b.hole);return {spans,ignored};
+  // Remove exact duplicate spans while preserving legitimate overlaps.
+  const seen=new Set();
+  const deduped=[];
+  for(const s of spans){
+    const key=uniqueSpanKey(s.hole,s.start,s.end,s.type);
+    if(seen.has(key))continue;
+    seen.add(key);deduped.push(s);
+  }
+
+  deduped.sort((a,b)=>a.start-b.start||a.hole-b.hole||a.end-b.end);
+  return {spans:deduped,ignored};
 }
 
 function buildString(spans){
   if(!spans.length)return '';
-  const first=Math.min(...spans.map(s=>s.start));const events=new Map();const push=(time,val)=>{const t=Math.round((time-first)*1000);if(!events.has(t))events.set(t,[]);events.get(t).push(val);};
-  spans.forEach(s=>{push(s.start,s.hole);push(s.end,-s.hole);});
-  const times=Array.from(events.keys()).sort((a,b)=>a-b);let last=0;const chunks=[];times.forEach(t=>{const vals=events.get(t).sort((a,b)=>{if(a>=0&&b<0)return -1;if(a<0&&b>=0)return 1;return a-b;});chunks.push(`${t-last},${vals.join(',')}`);last=t;});return chunks.join('|');
+
+  const first=Math.min(...spans.map(s=>s.start));
+  const events=new Map();
+
+  const push=(time,value)=>{
+    const ms=Math.round((time-first)*1000);
+    if(!events.has(ms))events.set(ms,[]);
+    events.get(ms).push(value);
+  };
+
+  spans.forEach(s=>{
+    push(s.start,s.hole);
+    push(s.end,-s.hole);
+  });
+
+  const times=Array.from(events.keys()).sort((a,b)=>a-b);
+  const chunks=[];
+  let last=0;
+
+  times.forEach(time=>{
+    const values=Array.from(new Set(events.get(time)))
+      .sort((a,b)=>{
+        if(a>=0&&b<0)return -1;
+        if(a<0&&b>=0)return 1;
+        return a-b;
+      });
+
+    if(values.length){
+      chunks.push(`${time-last},${values.join(',')}`);
+      last=time;
+    }
+  });
+
+  return chunks.join('|');
 }
 
-function activeRegistersForMelodyNote(noteTime){return Array.from(registerStateAt(noteTime));}
+function registerAllowsDivision(registerName,division){
+  return (REGISTER_DIVISIONS[registerName]||[]).includes(division);
+}
+
 function buildGeneratedMidi(){
   const out=new Midi();
-  const tracksOut={};OUTPUT_TRACKS.forEach((name,i)=>{const t=out.addTrack();t.name=name;t.channel=i;tracksOut[name]=t;});
+  // Preserve the source timing resolution when possible.
+  if(midi?.header?.ppq) out.header.ppq=midi.header.ppq;
+
+  const tracksOut={};
+  OUTPUT_TRACKS.forEach((name,i)=>{
+    const t=out.addTrack();
+    t.name=name;
+    t.channel=i;
+    if(t.instrument && typeof t.instrument.program === 'number') t.instrument.program=OUTPUT_PROGRAMS[name] ?? 0;
+    tracksOut[name]=t;
+  });
+
+  // ------------------------------------------------------------
+  // Already-organ-output MIDI: copy the 10 defined output tracks.
+  // ------------------------------------------------------------
   if(sourceMode==='ORGAN_OUTPUT'){
-    tracks.forEach(t=>{if(!t.enabled)return;const target=OUTPUT_TRACKS.find(x=>x.toLowerCase()===t.name.toLowerCase());if(!target)return;t.notes.forEach(n=>tracksOut[target].addNote({midi:n.midi,time:n.time,duration:n.duration,velocity:FIXED_VELOCITY/127}));});
+    tracks.forEach(t=>{
+      if(!t.enabled)return;
+      const target=OUTPUT_TRACKS.find(x=>x.toLowerCase()===String(t.name||'').toLowerCase());
+      if(!target)return;
+      t.notes.forEach(n=>tracksOut[target].addNote({
+        midi:n.midi,
+        time:n.time,
+        duration:n.duration,
+        velocity:FIXED_VELOCITY/127
+      }));
+    });
     return out;
   }
+
+  // ------------------------------------------------------------
+  // Source MIDI -> 10-track organ MIDI.
+  // ------------------------------------------------------------
   tracks.forEach(t=>{
     if(!t.enabled)return;
-    if(t.role==='BASS')t.notes.forEach(n=>tracksOut.Bass.addNote({midi:n.midi,time:n.time,duration:n.duration,velocity:FIXED_VELOCITY/127}));
-    else if(t.role==='ACCOMPANIMENT')t.notes.forEach(n=>tracksOut.Accompaniment.addNote({midi:n.midi,time:n.time,duration:n.duration,velocity:FIXED_VELOCITY/127}));
-    else if(t.role==='PERCUSSION')t.notes.forEach(n=>tracksOut.Percussion.addNote({midi:n.midi,time:n.time,duration:n.duration,velocity:FIXED_VELOCITY/127}));
-    else if(t.role==='MELODY')t.notes.forEach(n=>activeRegistersForMelodyNote(n.time).forEach(reg=>tracksOut[reg].addNote({midi:n.midi,time:n.time,duration:n.duration,velocity:FIXED_VELOCITY/127})));
+
+    if(t.role==='BASS'){
+      t.notes.forEach(n=>{
+        tracksOut.Bass.addNote({midi:n.midi,time:n.time,duration:n.duration,velocity:FIXED_VELOCITY/127});
+        const state=Array.from(registerStateAt(n.time));
+        state.forEach(reg=>{
+          if(!registerAllowsDivision(reg,'BASS'))return;
+          tracksOut[reg].addNote({midi:n.midi,time:n.time,duration:n.duration,velocity:FIXED_VELOCITY/127});
+        });
+      });
+      return;
+    }
+
+    if(t.role==='ACCOMPANIMENT'){
+      t.notes.forEach(n=>tracksOut.Accompaniment.addNote({
+        midi:n.midi,time:n.time,duration:n.duration,velocity:FIXED_VELOCITY/127
+      }));
+      return;
+    }
+
+    if(t.role==='MELODY'){
+      t.notes.forEach(n=>{
+        const state=Array.from(registerStateAt(n.time));
+        state.forEach(reg=>{
+          if(!registerAllowsDivision(reg,'MELODY'))return;
+          tracksOut[reg].addNote({
+            midi:n.midi,time:n.time,duration:n.duration,velocity:FIXED_VELOCITY/127
+          });
+        });
+      });
+      return;
+    }
+
+    if(t.role==='PERCUSSION'){
+      // Preserve ALL source percussion notes. The tracker translator
+      // interprets them separately for the physical roll.
+      t.notes.forEach(n=>tracksOut.Percussion.addNote({
+        midi:n.midi,time:n.time,duration:n.duration,velocity:FIXED_VELOCITY/127
+      }));
+    }
   });
+
   return out;
 }
 
 function renderRoll(spans){
-  const container=$('roll-container');container.innerHTML='';canvases=[];if(!spans.length)return 0;
-  const first=Math.min(...spans.map(s=>s.start));const normalized=spans.map(s=>({hole:s.hole,start:(s.start-first)*ROLL_SPEED,end:(s.end-first)*ROLL_SPEED}));
-  const total=Math.max(...normalized.map(s=>s.end))+120;const pages=Math.max(1,Math.ceil(total/CANVAS_HEIGHT));
+  const container=$('roll-container');
+  container.innerHTML='';
+  canvases=[];
+  if(!spans.length)return 0;
+
+  const first=Math.min(...spans.map(s=>s.start));
+  const normalized=spans.map(s=>({
+    hole:s.hole,
+    start:(s.start-first)*ROLL_SPEED,
+    end:(s.end-first)*ROLL_SPEED
+  }));
+
+  const total=Math.max(...normalized.map(s=>s.end))+120;
+  const pages=Math.max(1,Math.ceil(total/CANVAS_HEIGHT));
+
   for(let page=0;page<pages;page++){
-    const canvas=document.createElement('canvas');canvas.width=CANVAS_WIDTH;canvas.height=CANVAS_HEIGHT;const ctx=canvas.getContext('2d');
-    ctx.save();ctx.translate(CANVAS_WIDTH,0);ctx.scale(-1,1);
-    ctx.fillStyle='#fbf7f0';ctx.fillRect(0,0,CANVAS_WIDTH,CANVAS_HEIGHT);
-    ctx.strokeStyle='rgba(205,185,155,.38)';ctx.lineWidth=1;for(let i=0;i<=TRACK_COUNT;i++){const x=MARGIN_X+i*TRACK_WIDTH;ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,CANVAS_HEIGHT);ctx.stroke();}
-    ctx.globalCompositeOperation='destination-out';const ps=page*CANVAS_HEIGHT,pe=ps+CANVAS_HEIGHT;
-    normalized.forEach(s=>{if(s.end<ps||s.start>pe)return;const y=Math.max(0,s.start-ps);const h=Math.max(TRACK_WIDTH,Math.min(CANVAS_HEIGHT,s.end)-Math.max(0,s.start-ps));if(h<=0)return;const x=MARGIN_X+(s.hole-1)*TRACK_WIDTH+2;drawRound(ctx,x,y,TRACK_WIDTH-4,h);});
+    const canvas=document.createElement('canvas');
+    canvas.width=CANVAS_WIDTH;
+    canvas.height=CANVAS_HEIGHT;
+
+    const ctx=canvas.getContext('2d');
+
+    // Draw paper in normal canvas coordinates.
+    ctx.fillStyle='#fbf7f0';
+    ctx.fillRect(0,0,CANVAS_WIDTH,CANVAS_HEIGHT);
+
+    // Vertical lane guides.
+    ctx.strokeStyle='rgba(205,185,155,.38)';
+    ctx.lineWidth=1;
+    for(let i=0;i<=TRACK_COUNT;i++){
+      const x=MARGIN_X+i*TRACK_WIDTH;
+      ctx.beginPath();
+      ctx.moveTo(x,0);
+      ctx.lineTo(x,CANVAS_HEIGHT);
+      ctx.stroke();
+    }
+
+    // Punch holes using destination-out.
+    ctx.save();
+    ctx.globalCompositeOperation='destination-out';
+
+    const pageStart=page*CANVAS_HEIGHT;
+    const pageEnd=pageStart+CANVAS_HEIGHT;
+
+    normalized.forEach(s=>{
+      if(s.end<=pageStart || s.start>=pageEnd)return;
+
+      const start=Math.max(0,s.start-pageStart);
+      const end=Math.min(CANVAS_HEIGHT,s.end-pageStart);
+      const h=end-start;
+      if(h<=0)return;
+
+      const x=MARGIN_X+(s.hole-1)*TRACK_WIDTH+2;
+      drawRound(ctx,x,start,TRACK_WIDTH-4,h);
+    });
+
     ctx.restore();
-    const wrap=document.createElement('div');wrap.className='roll-wrap';wrap.appendChild(canvas);container.appendChild(wrap);const label=document.createElement('div');label.className='page-label';label.textContent=`Roll Page ${page+1} of ${pages}`;container.appendChild(label);canvases.push(canvas);
+
+    // Mirror horizontally after the complete page has been rendered.
+    // This keeps the physical roll orientation used by the previous compiler.
+    const source=document.createElement('canvas');
+    source.width=CANVAS_WIDTH;
+    source.height=CANVAS_HEIGHT;
+    const sourceCtx=source.getContext('2d');
+    sourceCtx.drawImage(canvas,0,0);
+
+    ctx.clearRect(0,0,CANVAS_WIDTH,CANVAS_HEIGHT);
+    ctx.save();
+    ctx.translate(CANVAS_WIDTH,0);
+    ctx.scale(-1,1);
+    ctx.drawImage(source,0,0);
+    ctx.restore();
+
+    const wrap=document.createElement('div');
+    wrap.className='roll-wrap';
+    wrap.appendChild(canvas);
+    container.appendChild(wrap);
+
+    const label=document.createElement('div');
+    label.className='page-label';
+    label.textContent=`Roll Page ${page+1} of ${pages}`;
+    container.appendChild(label);
+
+    canvases.push(canvas);
   }
+
   return pages;
 }
+
 function drawRound(ctx,x,y,w,h){ctx.beginPath();if(ctx.roundRect)ctx.roundRect(x,y,w,h,Math.min(w/2,6));else ctx.rect(x,y,w,h);ctx.fill();}
 
 function generateOutputs(){
@@ -511,7 +913,7 @@ function generateOutputs(){
   $('summary-panel').classList.remove('hidden');$('output-panel').classList.remove('hidden');$('roll-panel').classList.remove('hidden');
   const flags=[];
   if(registrationEvents.some(e=>e.name==='Flageolet'))flags.push('Flageolet has no assigned physical tracker control hole in the supplied 1–14 layout, so its registration event is not punched into the roll; its generated MIDI track is still created.');
-  if(sourceMode==='SOURCE')flags.push('Bass mapping is MIDI 31–48 → tracker 15–32; Accompaniment is MIDI 48–79 → 33–64; Melody is MIDI 60–96 → 65–101.');
+  if(sourceMode==='SOURCE')flags.push('Mappings: Bass MIDI 31–48 → tracker 15–32; Accompaniment MIDI 48–79 → tracker 33–64; Melody MIDI 60–96 → tracker 65–101. Register divisions: Cello=Bass; Forte=Bass+Melody; Violin/Flute/Flageolet/Bourdon/Glockenspiel=Melody. The roll renders Bass, Accompaniment, and Melody once; register output tracks do not create duplicate physical note holes.');
   $('mapping-note').textContent=flags.join(' ');
   setStatus(`Outputs generated: ${pages} paper-roll page(s), ${generatedString.length.toLocaleString()} string characters, 10-track organ MIDI.`);
 }
