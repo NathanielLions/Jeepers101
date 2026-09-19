@@ -24,7 +24,7 @@ input[type=text]{min-width:240px}.btns{display:flex;gap:8px;flex-wrap:wrap}butto
 .track-list{display:flex;flex-direction:column;gap:7px;max-height:420px;overflow:auto}.track-row{display:grid;grid-template-columns:34px 18px minmax(140px,1fr) 130px 85px;align-items:center;gap:8px;background:var(--panel2);border:1px solid #353535;border-radius:6px;padding:8px}.track-row.off{opacity:.45}.track-num{text-align:center;color:#888;font-weight:700}.track-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:700}.track-info{font-size:11px;color:#888;margin-top:2px}.track-enable{width:17px;height:17px}.role-select{width:100%;padding:7px}
 .register-panel{background:var(--panel2);border:1px solid #353535;border-radius:7px;padding:12px}.register-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px}.register-btn{background:#444;border:1px solid #555;min-height:40px}.register-btn.active{background:#2f6fd0;border-color:#6da2ff;box-shadow:0 0 9px rgba(50,130,255,.25)}.register-help{font-size:11px;color:#888;margin:8px 0}.active-state{margin-top:9px;padding:9px;background:#141414;border:1px solid #303030;border-radius:5px;color:#bbb;font-size:12px;min-height:36px}.cancel{width:100%;margin-top:8px;background:var(--red)}
 .events{margin-top:14px;border-top:1px solid #333;padding-top:12px}.event-list{max-height:240px;overflow:auto;display:flex;flex-direction:column;gap:6px}.event-row{display:grid;grid-template-columns:90px 1fr auto;gap:8px;align-items:center;background:#1a1a1a;border:1px solid #333;padding:7px;border-radius:5px}.event-time{font-family:monospace;color:#bbb}.event-add{color:#76d78a}.event-cancel{color:#ff7e7e}.event-flageolet{color:#c6a3ff}
-.output-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}@media(max-width:900px){.output-grid{grid-template-columns:1fr}}.output-box{background:#151515;border:1px solid #343434;border-radius:7px;padding:12px}.output-box textarea{width:100%;height:220px;resize:vertical;background:#0d0d0d;color:#9dffb5;border:1px solid #333;border-radius:5px;padding:9px;font-family:"Courier New",monospace;font-size:11px}
+.output-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}@media(max-width:900px){.output-grid{grid-template-columns:1fr}}.output-box{background:#151515;border:1px solid #343434;border-radius:7px;padding:12px}
 .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}@media(max-width:800px){.stats{grid-template-columns:repeat(2,1fr)}}.stat{background:#1a1a1a;border:1px solid #333;border-radius:5px;padding:9px}.stat label{font-size:10px;color:#777}.stat strong{display:block;font-size:18px;margin-top:2px}
 .note{font-size:11px;color:#8c8c8c;margin-top:8px}.danger-note{color:#e69b9b}.success-note{color:#94dda6}.hidden{display:none!important}
 </style>
@@ -33,7 +33,7 @@ input[type=text]{min-width:240px}.btns{display:flex;gap:8px;flex-wrap:wrap}butto
 <div class="container">
     <div class="panel">
         <h1>Fairground Organ MIDI Compiler v7</h1>
-        <p style="margin:0">MIDI editor + registration timeline + physical MIDI pipe string data + register-change string data + 10-track organ MIDI.</p>
+        <p style="margin:0">MIDI editor + registration timeline + 10-track organ MIDI.</p>
         <div class="controls" style="margin-top:12px">
             <div class="field"><label>MIDI FILE</label><input id="midi-file" type="file" accept=".mid,.midi"></div>
             <div class="field"><label>OUTPUT NAME</label><input id="file-name" type="text" placeholder="Song name"></div>
@@ -42,7 +42,7 @@ input[type=text]{min-width:240px}.btns{display:flex;gap:8px;flex-wrap:wrap}butto
         <div id="format-badge" style="margin-top:10px"></div>
         <div class="legend">
             <span>Source Ch 1 = Bass</span><span>Source Ch 2 = Accompaniment</span><span>Source Ch 3 = Melody</span><span>Source Ch 10 = Percussion</span><span>Cello = Bass</span><span>Forte = Bass + Melody</span><span>Other registers = Melody</span>
-            <span>Output Ch 1–10 = organ outputs</span><span>String Divisions: 16 = Bass, 17 = Accompaniment, 18 = Melody</span><span>Register String Codes: 1–7 and 15</span><span>String register controls: 1 Cancel, 2 Cello, 3 Flute, 4 Glockenspiel, 5 Bourdon, 6 Violin, 7 Forte, 15 Flageolet</span>
+            <span>Output Ch 1–10 = organ outputs</span>
         </div>
         <div id="status" class="status"></div>
     </div>
@@ -65,7 +65,7 @@ input[type=text]{min-width:240px}.btns{display:flex;gap:8px;flex-wrap:wrap}butto
             </div>
             <div class="register-panel">
                 <h3>Registration</h3>
-                <div class="register-help">Register buttons add an ON event at the current playhead. They do not affect browser preview playback. They are used only when generating Organ String Data and Generated Organ MIDI. They do not toggle OFF. Use Cancel Registers to clear the active register state. Flageolet is a register too and uses String Data control 15; it has no dedicated physical hole in the supplied 1–14 tracker layout.</div>
+                <div class="register-help">Register buttons add an ON event at the current playhead. They do not affect browser preview playback. They are used when generating the Organ MIDI. They do not toggle OFF. Use Cancel Registers to clear the active register state.</div>
                 <div id="register-grid" class="register-grid"></div>
                 <button id="cancel-registers" class="cancel">CANCEL REGISTERS</button>
                 <div id="active-registers" class="active-state">No registers active.</div>
@@ -91,8 +91,7 @@ input[type=text]{min-width:240px}.btns{display:flex;gap:8px;flex-wrap:wrap}butto
 
     <div id="output-panel" class="panel hidden">
         <h2>Exports</h2>
-        <div class="output-grid">
-            <div class="output-box"><h3>Organ String Data</h3><textarea id="string-output" readonly placeholder="Generated physical pipe MIDI string will appear here..."></textarea><div class="btns" style="margin-top:8px"><button id="copy-string" class="green">Copy String</button><button id="download-string" class="gray">Download String</button></div></div>
+        <div class="output-grid" style="grid-template-columns:1fr">
             <div class="output-box"><h3>Generated Organ MIDI</h3><p class="note">Exactly 10 organ output tracks. Cello receives Bass; Forte receives Bass + Melody; Violin/Flute/Flageolet/Bourdon/Glockenspiel receive Melody. Input velocity is ignored and output notes use a fixed velocity.</p><button id="download-midi" class="green">Download Organ MIDI</button></div>
         </div>
     </div>
@@ -110,8 +109,6 @@ input[type=text]{min-width:240px}.btns{display:flex;gap:8px;flex-wrap:wrap}butto
    - Velocity is ignored for organ logic.
    ============================================================ */
 
-const REGISTER_PULSE_MS = 80;
-const PERCUSSION_PULSE_MS = 80;
 const FIXED_VELOCITY = 127;
 
 const SOURCE_CHANNEL_ROLES = {0:'BASS',1:'ACCOMPANIMENT',2:'MELODY',9:'PERCUSSION'};
@@ -156,22 +153,6 @@ const PHYSICAL_CONTROLS = {
 /* Flageolet has an editor/output track, but the supplied physical 1–14
    tracker list does not provide a Flageolet control hole. We therefore
    never invent a hole number for it. */
-const REGISTER_TRACKER_HOLES = {Cello:2,Flute:3,Glockenspiel:4,Bourdon:5,Violin:6,Forte:7,Flageolet:null};
-
-/* Register control codes used ONLY in Organ String Data.
-   Musical pipe values remain physical MIDI 31–96.
-   Flageolet uses 15 because 1–14 are already reserved by the existing
-   register/percussion controls and Flageolet has no dedicated tracker hole. */
-const REGISTER_STRING_CODES = {Cello:2,Flute:3,Glockenspiel:4,Bourdon:5,Violin:6,Forte:7,Flageolet:15};
-const CANCEL_REGISTER_STRING_CODE = 1;
-
-/* Division markers used ONLY in Organ String Data.
-   A division marker applies to the following physical MIDI note values
-   in the same event until another division marker appears.
-   16 = Bass, 17 = Accompaniment, 18 = Melody. */
-const DIVISION_STRING_CODES = {BASS:16,ACCOMPANIMENT:17,MELODY:18};
-const STRING_CODE_TO_DIVISION = {16:'BASS',17:'ACCOMPANIMENT',18:'MELODY'};
-
 /* Source percussion notes observed in the supplied test MIDI:
    34/35 = bass drum family, 38 = alternating snare+wood block hit,
    49 = cymbal, 76 = wood block, 81 = triangle. */
@@ -194,8 +175,6 @@ let audioCtx = null;
 let scheduledAudio = [];
 let scheduledTimers = [];
 let generatedMidi = null;
-let generatedString = '';
-let alternatingSide = 0;
 
 const $ = id => document.getElementById(id);
 
@@ -584,246 +563,6 @@ function restartPlaybackAtCursor(){if(!playing)return;playing=false;stopAllAudio
 function stopPlayback(){playing=false;stopAllAudio();cursorSec=0;updatePlayButtons();updateCursorUI();renderRegisters();renderTimeline();}
 function updatePlayButtons(){$('play-btn').disabled=playing;$('pause-btn').disabled=!playing;$('stop-btn').disabled=!playing;}
 
-/* ============================================================
-   PHYSICAL ORGAN EVENT COMPILATION
-   ============================================================ */
-function trackerForMidi(midiNote,division){const d=DIVISIONS[division];if(!d||midiNote<d.firstMidi||midiNote>d.lastMidi)return null;return d.firstHole+(midiNote-d.firstMidi);}
-function midiInDivision(midiNote,division){const d=DIVISIONS[division];return !!d&&midiNote>=d.firstMidi&&midiNote<=d.lastMidi;}
-function percussionHoles(midiNote){
-  if(midiNote===PERCUSSION_INPUT.BASS_A||midiNote===PERCUSSION_INPUT.BASS_B)return [14];
-  if(midiNote===PERCUSSION_INPUT.SNARE_WOODBLOCK){const holes=alternatingSide===0?[9,10]:[11,12];alternatingSide=1-alternatingSide;return holes;}
-  if(midiNote===PERCUSSION_INPUT.CYMBAL)return [13];
-  if(midiNote===PERCUSSION_INPUT.WOODBLOCK){const hole=alternatingSide===0?10:12;alternatingSide=1-alternatingSide;return [hole];}
-  if(midiNote===PERCUSSION_INPUT.TRIANGLE)return [8];
-  return [];
-}
-function uniqueSpanKey(hole,start,end,type){
-  return `${hole}|${Math.round(start*1000000)}|${Math.round(end*1000000)}|${type}`;
-}
-
-function physicalEvents(){
-  const spans=[];
-  let ignored=0;
-  alternatingSide=0;
-
-  // ------------------------------------------------------------
-  // REGISTRATION CONTROL EVENTS
-  // ------------------------------------------------------------
-  registrationEvents.forEach(e=>{
-    if(e.type==='CANCEL'){
-      spans.push({
-        hole:1,
-        value:CANCEL_REGISTER_STRING_CODE,
-        start:e.time,
-        end:e.time+REGISTER_PULSE_MS/1000,
-        type:'REGISTER'
-      });
-      return;
-    }
-
-    const hole=REGISTER_TRACKER_HOLES[e.name];
-    const value=REGISTER_STRING_CODES[e.name];
-
-    if(value===undefined)return;
-
-    /* Flageolet has no dedicated physical tracker hole, but it MUST
-       still be represented in Organ String Data as register control 15. */
-    spans.push({
-      hole:hole,
-      value:value,
-      start:e.time,
-      end:e.time+REGISTER_PULSE_MS/1000,
-      type:'REGISTER'
-    });
-  });
-
-  // ------------------------------------------------------------
-  // SOURCE MIDI: physical tracker notes come from the three
-  // divisions, NOT from the active register outputs.
-  // ------------------------------------------------------------
-  if(sourceMode==='SOURCE'){
-    tracks.forEach(t=>{
-      if(!t.enabled)return;
-
-      if(t.role==='BASS'||t.role==='ACCOMPANIMENT'||t.role==='MELODY'){
-        const division=t.role;
-        t.notes.forEach(n=>{
-          const hole=trackerForMidi(n.midi,division);
-          if(hole===null){ignored++;return;}
-          spans.push({hole,value:n.midi,division,start:n.time,end:n.time+n.duration,type:'NOTE'});
-        });
-        return;
-      }
-
-      if(t.role==='PERCUSSION'){
-        t.notes.forEach(n=>{
-          const holes=percussionHoles(n.midi);
-          if(!holes.length){ignored++;return;}
-          holes.forEach(h=>spans.push({
-            hole:h,
-            start:n.time,
-            end:n.time+PERCUSSION_PULSE_MS/1000,
-            type:'PERCUSSION'
-          }));
-        });
-      }
-    });
-
-  } else {
-    // ----------------------------------------------------------
-    // ORGAN-OUTPUT MIDI
-    // ----------------------------------------------------------
-    // The generated organ MIDI contains register copies. For the
-    // physical roll, Bass and Accompaniment are canonical divisions,
-    // while Melody is reconstructed once from the melody-register
-    // tracks. Cello is a Bass register, so it is not a second Bass lane.
-    const melodySeen=new Set();
-    tracks.forEach(t=>{
-      if(!t.enabled)return;
-      const name=String(t.name||'').trim().toLowerCase();
-
-      if(name==='bass'){
-        t.notes.forEach(n=>{
-          const hole=trackerForMidi(n.midi,'BASS');
-          if(hole===null){ignored++;return;}
-          spans.push({hole,value:n.midi,division:'BASS',start:n.time,end:n.time+n.duration,type:'NOTE'});
-        });
-        return;
-      }
-
-      if(name==='accompaniment'){
-        t.notes.forEach(n=>{
-          const hole=trackerForMidi(n.midi,'ACCOMPANIMENT');
-          if(hole===null){ignored++;return;}
-          spans.push({hole,value:n.midi,division:'ACCOMPANIMENT',start:n.time,end:n.time+n.duration,type:'NOTE'});
-        });
-        return;
-      }
-
-      if(name==='percussion'){
-        t.notes.forEach(n=>{
-          const holes=percussionHoles(n.midi);
-          if(!holes.length){ignored++;return;}
-          holes.forEach(h=>spans.push({hole:h,value:h,start:n.time,end:n.time+PERCUSSION_PULSE_MS/1000,type:'PERCUSSION'}));
-        });
-        return;
-      }
-
-      // Cello's musical material is already represented by the Bass track.
-      if(name==='cello')return;
-
-      if(['forte','violin','flute','flageolet','bourdon','glockenspiel'].includes(name)){
-        t.notes.forEach(n=>{
-          // Forte contains both Bass and Melody output. Only its Melody
-          // notes belong in the Melody physical tracker division here.
-          const hole=trackerForMidi(n.midi,'MELODY');
-          if(hole===null)return;
-          const key=`${hole}|${Math.round(n.time*1000000)}|${Math.round((n.time+n.duration)*1000000)}`;
-          if(melodySeen.has(key))return;
-          melodySeen.add(key);
-          spans.push({hole,value:n.midi,division:'MELODY',start:n.time,end:n.time+n.duration,type:'NOTE'});
-        });
-      }
-    });
-  }
-  // Remove exact duplicate spans while preserving legitimate overlaps.
-  const seen=new Set();
-  const deduped=[];
-  for(const s of spans){
-    const key=uniqueSpanKey(s.hole,s.start,s.end,s.type);
-    if(seen.has(key))continue;
-    seen.add(key);deduped.push(s);
-  }
-
-  deduped.sort((a,b)=>a.start-b.start||a.hole-b.hole||a.end-b.end);
-  return {spans:deduped,ignored};
-}
-
-function buildString(spans){
-  if(!spans.length)return '';
-
-  const first=Math.min(...spans.map(s=>s.start));
-  const events=new Map();
-
-  const ensureEvent=(time)=>{
-    const ms=Math.round((time-first)*1000);
-    if(!events.has(ms))events.set(ms,[]);
-    return events.get(ms);
-  };
-
-  spans.forEach(s=>{
-    const list=ensureEvent(s.start);
-    if(s.type==='NOTE'){
-      list.push({kind:'NOTE_ON',division:s.division,value:s.value});
-    }else if(s.type==='REGISTER'){
-      list.push({kind:'CONTROL',value:s.value});
-    }else if(s.type==='PERCUSSION'){
-      list.push({kind:'CONTROL',value:s.hole});
-    }
-
-    const endList=ensureEvent(s.end);
-    if(s.type==='NOTE'){
-      endList.push({kind:'NOTE_OFF',division:s.division,value:-Math.abs(s.value)});
-    }else if(s.type==='REGISTER'){
-      endList.push({kind:'CONTROL',value:-Math.abs(s.value)});
-    }else if(s.type==='PERCUSSION'){
-      endList.push({kind:'CONTROL',value:-Math.abs(s.hole)});
-    }
-  });
-
-  const times=Array.from(events.keys()).sort((a,b)=>a-b);
-  const chunks=[];
-  let last=0;
-
-  times.forEach(time=>{
-    const raw=events.get(time);
-    const values=[];
-
-    // Controls/percussion first. These are already unambiguous because
-    // their values are 1–15. Preserve ON before OFF at the same timestamp.
-    raw.filter(x=>x.kind==='CONTROL')
-      .sort((a,b)=>{
-        const aa=a.value>=0?0:1;
-        const bb=b.value>=0?0:1;
-        return aa-bb||a.value-b.value;
-      })
-      .forEach(x=>values.push(String(x.value)));
-
-    // Group musical pipe notes by division. A division marker (16/17/18)
-    // precedes its note values, making overlapping MIDI ranges unambiguous.
-    const notesByDivision={BASS:[],ACCOMPANIMENT:[],MELODY:[]};
-    raw.filter(x=>x.kind==='NOTE_ON'||x.kind==='NOTE_OFF').forEach(x=>{
-      if(notesByDivision[x.division])notesByDivision[x.division].push(x);
-    });
-
-    ['BASS','ACCOMPANIMENT','MELODY'].forEach(division=>{
-      const notes=notesByDivision[division];
-      if(!notes.length)return;
-
-      const code=DIVISION_STRING_CODES[division];
-      values.push(String(code));
-
-      // NOTE ON before NOTE OFF when simultaneous.
-      notes.sort((a,b)=>{
-        const aa=a.kind==='NOTE_OFF'?1:0;
-        const bb=b.kind==='NOTE_OFF'?1:0;
-        return aa-bb||a.value-b.value;
-      });
-
-      notes.forEach(n=>values.push(String(n.value)));
-    });
-
-    if(values.length){
-      chunks.push(`${time-last},${values.join(',')}`);
-      last=time;
-    }
-  });
-
-  return chunks.join('|');
-}
-function registerAllowsDivision(registerName,division){
-  return (REGISTER_DIVISIONS[registerName]||[]).includes(division);
-}
 
 function buildGeneratedMidi(){
   const out=new Midi();
@@ -915,30 +654,22 @@ function buildGeneratedMidi(){
 function generateOutputs(){
   if(!midi)return;
 
-  const {spans,ignored}=physicalEvents();
-  generatedString=buildString(spans);
   generatedMidi=buildGeneratedMidi();
-
-  $('string-output').value=generatedString;
 
   $('stat-tracks').textContent=tracks.length;
   $('stat-notes').textContent=countNotes();
   $('stat-regs').textContent=registrationEvents.length;
-  $('stat-ignored').textContent=ignored;
+  $('stat-ignored').textContent=0;
 
   $('summary-panel').classList.remove('hidden');
   $('output-panel').classList.remove('hidden');
 
   const flags=[];
   if(registrationEvents.some(e=>e.name==='Flageolet')){
-    flags.push('Flageolet is included as a register. Its register event is included in Organ String Data as control 15, and its generated MIDI track is still created.');
+    flags.push('Flageolet is included as a register and its generated MIDI track is created.');
   }
-  if(sourceMode==='SOURCE'){
-    flags.push('Physical pipes: Bass MIDI 31–48; Accompaniment MIDI 48–79; Melody MIDI 60–96. Organ String Data stores actual physical pipe MIDI numbers for pipe notes, with division markers 16/17/18.');
-  }
-
   $('mapping-note').textContent=flags.join(' ');
-  setStatus(`Outputs generated: ${generatedString.length.toLocaleString()} string characters and 10-track organ MIDI.`);
+  setStatus('Organ MIDI generated: 10 output tracks.');
 }
 
 function downloadBlob(blob,name){const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);}
@@ -950,10 +681,7 @@ $('all-on-btn').onclick=()=>{tracks.forEach(t=>t.enabled=true);renderTracks();re
 $('all-off-btn').onclick=()=>{tracks.forEach(t=>t.enabled=false);renderTracks();renderTimeline();};
 $('play-btn').onclick=startPlayback;$('pause-btn').onclick=pausePlayback;$('stop-btn').onclick=stopPlayback;
 $('undo-btn').onclick=undo;$('redo-btn').onclick=redo;
-$('cancel-registers').onclick=addCancel;$('generate-btn').onclick=generateOutputs;
-$('copy-string').onclick=async()=>{if(!generatedString)return;try{await navigator.clipboard.writeText(generatedString);setStatus('Organ string data copied.');}catch{ $('string-output').select();document.execCommand('copy');setStatus('Organ string data copied.');}};
-$('download-string').onclick=()=>{if(generatedString)downloadBlob(new Blob([generatedString],{type:'text/plain'}),safeName($('file-name').value)+'-organ-string.txt');};
-$('download-midi').onclick=()=>{if(generatedMidi)downloadBlob(new Blob([generatedMidi.toArray()],{type:'audio/midi'}),safeName($('file-name').value)+'-fairground-organ.mid');};
+$('cancel-registers').onclick=addCancel;$('generate-btn').onclick=generateOutputs;$('download-midi').onclick=()=>{if(generatedMidi)downloadBlob(new Blob([generatedMidi.toArray()],{type:'audio/midi'}),safeName($('file-name').value)+'-fairground-organ.mid');};
 $('download-source-btn').onclick=()=>{if(!midi)return;downloadBlob(new Blob([midi.toArray()],{type:'audio/midi'}),safeName($('file-name').value)+'-edited-source.mid');};
 window.addEventListener('resize',()=>{if(midi)renderTimeline();});
 window.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){e.preventDefault();e.shiftKey?redo():undo();}else if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='y'){e.preventDefault();redo();}else if(e.code==='Space'&&!e.target.matches('input,textarea,select')){e.preventDefault();if(playing)pausePlayback();else void startPlayback();}});
