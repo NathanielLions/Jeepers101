@@ -25,8 +25,7 @@ input[type=text]{min-width:240px}.btns{display:flex;gap:8px;flex-wrap:wrap}butto
 .register-panel{background:var(--panel2);border:1px solid #353535;border-radius:7px;padding:12px}.register-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px}.register-btn{background:#444;border:1px solid #555;min-height:40px}.register-btn.active{background:#2f6fd0;border-color:#6da2ff;box-shadow:0 0 9px rgba(50,130,255,.25)}.register-help{font-size:11px;color:#888;margin:8px 0}.active-state{margin-top:9px;padding:9px;background:#141414;border:1px solid #303030;border-radius:5px;color:#bbb;font-size:12px;min-height:36px}.cancel{width:100%;margin-top:8px;background:var(--red)}
 .events{margin-top:14px;border-top:1px solid #333;padding-top:12px}.event-list{max-height:240px;overflow:auto;display:flex;flex-direction:column;gap:6px}.event-row{display:grid;grid-template-columns:90px 1fr auto;gap:8px;align-items:center;background:#1a1a1a;border:1px solid #333;padding:7px;border-radius:5px}.event-time{font-family:monospace;color:#bbb}.event-add{color:#76d78a}.event-cancel{color:#ff7e7e}.event-flageolet{color:#c6a3ff}
 .output-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}@media(max-width:900px){.output-grid{grid-template-columns:1fr}}.output-box{background:#151515;border:1px solid #343434;border-radius:7px;padding:12px}.output-box textarea{width:100%;height:220px;resize:vertical;background:#0d0d0d;color:#9dffb5;border:1px solid #333;border-radius:5px;padding:9px;font-family:"Courier New",monospace;font-size:11px}
-.roll-container{display:flex;flex-direction:column;align-items:center;gap:8px}.roll-wrap{width:100%;overflow:auto;text-align:center}.roll-wrap canvas{max-width:100%;height:auto;border:1px solid #444;background:var(--paper);box-shadow:0 12px 30px rgba(0,0,0,.35)}.page-label{font-size:12px;color:#999;margin-bottom:12px}
-.stats{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}@media(max-width:800px){.stats{grid-template-columns:repeat(2,1fr)}}.stat{background:#1a1a1a;border:1px solid #333;border-radius:5px;padding:9px}.stat label{font-size:10px;color:#777}.stat strong{display:block;font-size:18px;margin-top:2px}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}@media(max-width:800px){.stats{grid-template-columns:repeat(2,1fr)}}.stat{background:#1a1a1a;border:1px solid #333;border-radius:5px;padding:9px}.stat label{font-size:10px;color:#777}.stat strong{display:block;font-size:18px;margin-top:2px}
 .note{font-size:11px;color:#8c8c8c;margin-top:8px}.danger-note{color:#e69b9b}.success-note{color:#94dda6}.hidden{display:none!important}
 </style>
 </head>
@@ -34,7 +33,7 @@ input[type=text]{min-width:240px}.btns{display:flex;gap:8px;flex-wrap:wrap}butto
 <div class="container">
     <div class="panel">
         <h1>Fairground Organ MIDI Compiler v7</h1>
-        <p style="margin:0">MIDI editor + registration timeline + 101-hole tracker roll + physical MIDI pipe string data + register-change string data + 10-track organ MIDI.</p>
+        <p style="margin:0">MIDI editor + registration timeline + physical MIDI pipe string data + register-change string data + 10-track organ MIDI.</p>
         <div class="controls" style="margin-top:12px">
             <div class="field"><label>MIDI FILE</label><input id="midi-file" type="file" accept=".mid,.midi"></div>
             <div class="field"><label>OUTPUT NAME</label><input id="file-name" type="text" placeholder="Song name"></div>
@@ -86,7 +85,7 @@ input[type=text]{min-width:240px}.btns{display:flex;gap:8px;flex-wrap:wrap}butto
 
     <div id="summary-panel" class="panel hidden">
         <h2>Compilation Summary</h2>
-        <div class="stats"><div class="stat"><label>INPUT TRACKS</label><strong id="stat-tracks">0</strong></div><div class="stat"><label>NOTES</label><strong id="stat-notes">0</strong></div><div class="stat"><label>REGISTER EVENTS</label><strong id="stat-regs">0</strong></div><div class="stat"><label>PAPER PAGES</label><strong id="stat-pages">0</strong></div><div class="stat"><label>IGNORED NOTES</label><strong id="stat-ignored">0</strong></div></div>
+        <div class="stats"><div class="stat"><label>INPUT TRACKS</label><strong id="stat-tracks">0</strong></div><div class="stat"><label>NOTES</label><strong id="stat-notes">0</strong></div><div class="stat"><label>REGISTER EVENTS</label><strong id="stat-regs">0</strong></div><div class="stat"><label>IGNORED NOTES</label><strong id="stat-ignored">0</strong></div></div>
         <div id="mapping-note" class="note"></div>
     </div>
 
@@ -98,12 +97,7 @@ input[type=text]{min-width:240px}.btns{display:flex;gap:8px;flex-wrap:wrap}butto
         </div>
     </div>
 
-    <div id="roll-panel" class="panel hidden">
-        <h2>101-Hole Paper Roll</h2>
-        <p style="margin-top:0">Holes 1–14 are controls/percussion. Bass = 15–32, Accompaniment = 33–64, Melody = 65–101. String Data uses physical MIDI 31–96 with division markers 16/17/18. Roll runs top-to-bottom and is mirrored horizontally.</p>
-        <button id="download-roll" class="green">Download All Roll Pages</button>
-        <div id="roll-container" class="roll-container" style="margin-top:14px"></div>
-    </div>
+
 </div>
 
 <script>
@@ -116,12 +110,6 @@ input[type=text]{min-width:240px}.btns{display:flex;gap:8px;flex-wrap:wrap}butto
    - Velocity is ignored for organ logic.
    ============================================================ */
 
-const CANVAS_WIDTH = 1024;
-const CANVAS_HEIGHT = 4096;
-const TRACK_COUNT = 101;
-const TRACK_WIDTH = 8;
-const MARGIN_X = (CANVAS_WIDTH - TRACK_COUNT * TRACK_WIDTH) / 2;
-const ROLL_SPEED = 256;
 const REGISTER_PULSE_MS = 80;
 const PERCUSSION_PULSE_MS = 80;
 const FIXED_VELOCITY = 127;
@@ -206,7 +194,6 @@ let audioCtx = null;
 let scheduledAudio = [];
 let generatedMidi = null;
 let generatedString = '';
-let canvases = [];
 let alternatingSide = 0;
 
 const $ = id => document.getElementById(id);
@@ -314,7 +301,7 @@ function openMidiEditor(){
       tracks=midi.tracks.map((t,index)=>({index,name:t.name||`Track ${index+1}`,channel:Number.isFinite(t.channel)?t.channel:0,notes:t.notes||[],enabled:true,role:roleForTrack(t,index)}));
       durationSec=Math.max(0.1,Number(midi.duration)||Math.max(...tracks.flatMap(t=>t.notes.map(n=>n.time+n.duration)),0));
       cursorSec=0; registrationEvents=[]; undoStack=[]; redoStack=[]; renderAll();
-      $('editor-panel').classList.remove('hidden'); $('summary-panel').classList.add('hidden'); $('output-panel').classList.add('hidden'); $('roll-panel').classList.add('hidden');
+      $('editor-panel').classList.remove('hidden'); $('summary-panel').classList.add('hidden'); $('output-panel').classList.add('hidden'); 
       $('mode-badge').textContent=sourceMode==='SOURCE'?'Source MIDI':'Organ Output MIDI'; $('mode-badge').classList.add(sourceMode==='SOURCE'?'source':'output');
       $('format-badge').innerHTML=`<span class="badge ${sourceMode==='SOURCE'?'source':'output'}">Detected: ${sourceMode==='SOURCE'?'SOURCE MIDI':'ORGAN-OUTPUT MIDI'}</span>`;
       $('time-slider').max=durationSec; $('time-slider').value=0; $('time-slider').disabled=false;
@@ -891,114 +878,33 @@ function buildGeneratedMidi(){
   return out;
 }
 
-function renderRoll(spans){
-  const container=$('roll-container');
-  container.innerHTML='';
-  canvases=[];
-
-  // Some String Data controls (currently Flageolet) have no physical
-  // tracker hole. They belong in the string but not on the paper roll.
-  const rollSpans=spans.filter(s=>Number.isFinite(s.hole));
-  if(!rollSpans.length)return 0;
-
-  const first=Math.min(...rollSpans.map(s=>s.start));
-  const normalized=rollSpans.map(s=>({
-    hole:s.hole,
-    start:(s.start-first)*ROLL_SPEED,
-    end:(s.end-first)*ROLL_SPEED
-  }));
-
-  const total=Math.max(...normalized.map(s=>s.end))+120;
-  const pages=Math.max(1,Math.ceil(total/CANVAS_HEIGHT));
-
-  for(let page=0;page<pages;page++){
-    const canvas=document.createElement('canvas');
-    canvas.width=CANVAS_WIDTH;
-    canvas.height=CANVAS_HEIGHT;
-
-    const ctx=canvas.getContext('2d');
-
-    // Draw paper in normal canvas coordinates.
-    ctx.fillStyle='#fbf7f0';
-    ctx.fillRect(0,0,CANVAS_WIDTH,CANVAS_HEIGHT);
-
-    // Vertical lane guides.
-    ctx.strokeStyle='rgba(205,185,155,.38)';
-    ctx.lineWidth=1;
-    for(let i=0;i<=TRACK_COUNT;i++){
-      const x=MARGIN_X+i*TRACK_WIDTH;
-      ctx.beginPath();
-      ctx.moveTo(x,0);
-      ctx.lineTo(x,CANVAS_HEIGHT);
-      ctx.stroke();
-    }
-
-    // Punch holes using destination-out.
-    ctx.save();
-    ctx.globalCompositeOperation='destination-out';
-
-    const pageStart=page*CANVAS_HEIGHT;
-    const pageEnd=pageStart+CANVAS_HEIGHT;
-
-    normalized.forEach(s=>{
-      if(s.end<=pageStart || s.start>=pageEnd)return;
-
-      const start=Math.max(0,s.start-pageStart);
-      const end=Math.min(CANVAS_HEIGHT,s.end-pageStart);
-      const h=end-start;
-      if(h<=0)return;
-
-      const x=MARGIN_X+(s.hole-1)*TRACK_WIDTH+2;
-      drawRound(ctx,x,start,TRACK_WIDTH-4,h);
-    });
-
-    ctx.restore();
-
-    // Mirror horizontally after the complete page has been rendered.
-    // This keeps the physical roll orientation used by the previous compiler.
-    const source=document.createElement('canvas');
-    source.width=CANVAS_WIDTH;
-    source.height=CANVAS_HEIGHT;
-    const sourceCtx=source.getContext('2d');
-    sourceCtx.drawImage(canvas,0,0);
-
-    ctx.clearRect(0,0,CANVAS_WIDTH,CANVAS_HEIGHT);
-    ctx.save();
-    ctx.translate(CANVAS_WIDTH,0);
-    ctx.scale(-1,1);
-    ctx.drawImage(source,0,0);
-    ctx.restore();
-
-    const wrap=document.createElement('div');
-    wrap.className='roll-wrap';
-    wrap.appendChild(canvas);
-    container.appendChild(wrap);
-
-    const label=document.createElement('div');
-    label.className='page-label';
-    label.textContent=`Roll Page ${page+1} of ${pages}`;
-    container.appendChild(label);
-
-    canvases.push(canvas);
-  }
-
-  return pages;
-}
-
-function drawRound(ctx,x,y,w,h){ctx.beginPath();if(ctx.roundRect)ctx.roundRect(x,y,w,h,Math.min(w/2,6));else ctx.rect(x,y,w,h);ctx.fill();}
-
 function generateOutputs(){
   if(!midi)return;
-  const {spans,ignored}=physicalEvents();generatedString=buildString(spans);generatedMidi=buildGeneratedMidi();
+
+  const {spans,ignored}=physicalEvents();
+  generatedString=buildString(spans);
+  generatedMidi=buildGeneratedMidi();
+
   $('string-output').value=generatedString;
-  const pages=renderRoll(spans);
-  $('stat-tracks').textContent=tracks.length;$('stat-notes').textContent=countNotes();$('stat-regs').textContent=registrationEvents.length;$('stat-pages').textContent=pages;$('stat-ignored').textContent=ignored;
-  $('summary-panel').classList.remove('hidden');$('output-panel').classList.remove('hidden');$('roll-panel').classList.remove('hidden');
+
+  $('stat-tracks').textContent=tracks.length;
+  $('stat-notes').textContent=countNotes();
+  $('stat-regs').textContent=registrationEvents.length;
+  $('stat-ignored').textContent=ignored;
+
+  $('summary-panel').classList.remove('hidden');
+  $('output-panel').classList.remove('hidden');
+
   const flags=[];
-  if(registrationEvents.some(e=>e.name==='Flageolet'))flags.push('Flageolet is included as a register. It has no dedicated physical tracker hole, so it is not punched into the paper roll; its register event IS included in Organ String Data as control 15, and its generated MIDI track is still created.');
-  if(sourceMode==='SOURCE')flags.push('Physical pipes: Bass MIDI 31–48; Accompaniment MIDI 48–79; Melody MIDI 60–96. Paper-roll holes remain Bass 15–32, Accompaniment 33–64, Melody 65–101. Organ String Data now stores actual physical pipe MIDI numbers for pipe notes instead of tracker-hole numbers. The roll renders Bass, Accompaniment, and Melody once; register output tracks do not create duplicate physical note holes.');
+  if(registrationEvents.some(e=>e.name==='Flageolet')){
+    flags.push('Flageolet is included as a register. Its register event is included in Organ String Data as control 15, and its generated MIDI track is still created.');
+  }
+  if(sourceMode==='SOURCE'){
+    flags.push('Physical pipes: Bass MIDI 31–48; Accompaniment MIDI 48–79; Melody MIDI 60–96. Organ String Data stores actual physical pipe MIDI numbers for pipe notes, with division markers 16/17/18.');
+  }
+
   $('mapping-note').textContent=flags.join(' ');
-  setStatus(`Outputs generated: ${pages} paper-roll page(s), ${generatedString.length.toLocaleString()} string characters, 10-track organ MIDI.`);
+  setStatus(`Outputs generated: ${generatedString.length.toLocaleString()} string characters and 10-track organ MIDI.`);
 }
 
 function downloadBlob(blob,name){const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);}
@@ -1014,8 +920,7 @@ $('cancel-registers').onclick=addCancel;$('generate-btn').onclick=generateOutput
 $('copy-string').onclick=async()=>{if(!generatedString)return;try{await navigator.clipboard.writeText(generatedString);setStatus('Organ string data copied.');}catch{ $('string-output').select();document.execCommand('copy');setStatus('Organ string data copied.');}};
 $('download-string').onclick=()=>{if(generatedString)downloadBlob(new Blob([generatedString],{type:'text/plain'}),safeName($('file-name').value)+'-organ-string.txt');};
 $('download-midi').onclick=()=>{if(generatedMidi)downloadBlob(new Blob([generatedMidi.toArray()],{type:'audio/midi'}),safeName($('file-name').value)+'-fairground-organ.mid');};
-$('download-source-btn').onclick=()=>{if(!midi)return;downloadBlob(new Blob([midi.toArray()],{type:'audio/midi'}),safeName($('file-name').value)+'-edited-source.mid');};
-$('download-roll').onclick=()=>{if(!canvases.length)return;const base=safeName($('file-name').value);canvases.forEach((c,i)=>setTimeout(()=>c.toBlob(b=>b&&downloadBlob(b,`${base}-roll-page-${i+1}.png`),'image/png'),i*250));};
+$('download-source-btn').onclick=()=>{if(!midi)return;downloadBlob(new Blob([midi.toArray()],{type:'audio/midi'}),safeName($('file-name').value)+'-edited-source.mid');};const base=safeName($('file-name').value);canvases.forEach((c,i)=>setTimeout(()=>c.toBlob(b=>b&&downloadBlob(b,`${base}-roll-page-${i+1}.png`),'image/png'),i*250));};
 window.addEventListener('resize',()=>{if(midi)renderTimeline();});
 window.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){e.preventDefault();e.shiftKey?redo():undo();}else if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='y'){e.preventDefault();redo();}else if(e.code==='Space'&&!e.target.matches('input,textarea,select')){e.preventDefault();playing?pausePlayback():startPlayback();}});
 
