@@ -65,7 +65,7 @@ input[type=text]{min-width:240px}.btns{display:flex;gap:8px;flex-wrap:wrap}butto
             </div>
             <div class="register-panel">
                 <h3>Registration</h3>
-                <div class="register-help">Register buttons add an ON event at the current playhead. They do not toggle OFF. Use Cancel Registers to clear the active register state. Register changes are included in Organ String Data. Flageolet is a register too and uses String Data control 15; it has no dedicated physical hole in the supplied 1–14 tracker layout.</div>
+                <div class="register-help">Register buttons add an ON event at the current playhead. They do not affect browser preview playback. They are used only when generating Organ String Data and Generated Organ MIDI. They do not toggle OFF. Use Cancel Registers to clear the active register state. Flageolet is a register too and uses String Data control 15; it has no dedicated physical hole in the supplied 1–14 tracker layout.</div>
                 <div id="register-grid" class="register-grid"></div>
                 <button id="cancel-registers" class="cancel">CANCEL REGISTERS</button>
                 <div id="active-registers" class="active-state">No registers active.</div>
@@ -192,6 +192,7 @@ let playWallStart = 0;
 let playCursorStart = 0;
 let audioCtx = null;
 let scheduledAudio = [];
+let scheduledTimers = [];
 let generatedMidi = null;
 let generatedString = '';
 let alternatingSide = 0;
@@ -299,7 +300,7 @@ function openMidiEditor(){
       midi=new Midi(buf);
       sourceMode=detectFormat(midi);
       tracks=midi.tracks.map((t,index)=>({index,name:t.name||`Track ${index+1}`,channel:Number.isFinite(t.channel)?t.channel:0,notes:t.notes||[],enabled:true,role:roleForTrack(t,index)}));
-      durationSec=Math.max(0.1,Number(midi.duration)||Math.max(...tracks.flatMap(t=>t.notes.map(n=>n.time+n.duration)),0));
+      durationSec=Math.max(0.1,...tracks.flatMap(t=>t.notes.map(n=>Number(n.time||0)+Number(n.duration||0))),0);
       cursorSec=0; registrationEvents=[]; undoStack=[]; redoStack=[]; renderAll();
       $('editor-panel').classList.remove('hidden'); $('summary-panel').classList.add('hidden'); $('output-panel').classList.add('hidden'); 
       $('mode-badge').textContent=sourceMode==='SOURCE'?'Source MIDI':'Organ Output MIDI'; $('mode-badge').classList.add(sourceMode==='SOURCE'?'source':'output');
@@ -361,81 +362,55 @@ $('timeline-canvas').addEventListener('pointerdown',e=>{const r=e.currentTarget.
 function midiNotesForPreview(){
   const out=[];
 
-  // ------------------------------------------------------------
-  // ORGAN-OUTPUT MIDI
-  // ------------------------------------------------------------
-  // If the uploaded file is already in the 10-track organ format,
-  // audition exactly those output tracks.
-  if(sourceMode==='ORGAN_OUTPUT'){
-    tracks.forEach(t=>{
-      if(!t.enabled)return;
-      const outputName=OUTPUT_TRACKS.find(n=>n.toLowerCase()===t.name.toLowerCase());
-      if(!outputName)return;
-      for(const n of t.notes){
-        out.push({
-          time:n.time,
-          duration:n.duration,
-          midi:n.midi,
-          kind:outputName,
-          percussion:outputName==='Percussion'
-        });
-      }
-    });
-    return out;
-  }
+  // Browser preview is based ONLY on the enabled MIDI tracks.
+  // Registration events never add, remove, or duplicate preview notes.
+  // Registers are used only when generating the Organ String Data
+  // and the 10-track generated Organ MIDI.
 
-  // ------------------------------------------------------------
-  // SOURCE MIDI
-  // ------------------------------------------------------------
-  // Source format is fixed:
-  // Channel 1 = Bass
-  // Channel 2 = Accompaniment
-  // Channel 3 = Melody
-  // Channel 10 = Percussion
-  //
-  // Bass and Accompaniment remain audible as their own divisions.
-  // Register sounds are layered according to the registration state.
   tracks.forEach(t=>{
     if(!t.enabled)return;
 
+    let kind='Accompaniment';
+
     if(t.role==='BASS'){
-      t.notes.forEach(n=>{
-        out.push({time:n.time,duration:n.duration,midi:n.midi,kind:'Bass'});
-        const state=Array.from(registerStateAt(n.time));
-        state.forEach(reg=>{
-          if(!(REGISTER_DIVISIONS[reg]||[]).includes('BASS'))return;
-          out.push({time:n.time,duration:n.duration,midi:n.midi,kind:reg});
-        });
+      kind='Bass';
+    }else if(t.role==='ACCOMPANIMENT'){
+      kind='Accompaniment';
+    }else if(t.role==='MELODY'){
+      kind='Melody';
+    }else if(t.role==='PERCUSSION'){
+      kind='Percussion';
+    }else if(t.role==='REGISTER_OUTPUT'){
+      // If an already-generated organ MIDI is loaded, each named
+      // output track gets its own simple preview waveform.
+      const outputName=OUTPUT_TRACKS.find(
+        n=>n.toLowerCase()===String(t.name||'').trim().toLowerCase()
+      );
+      if(!outputName)return;
+      kind=outputName;
+    }else{
+      return;
+    }
+
+    t.notes.forEach(n=>{
+      out.push({
+        time:n.time,
+        duration:n.duration,
+        midi:n.midi,
+        kind,
+        percussion:kind==='Percussion'
       });
-      return;
-    }
-
-    if(t.role==='ACCOMPANIMENT'){
-      t.notes.forEach(n=>out.push({time:n.time,duration:n.duration,midi:n.midi,kind:'Accompaniment'}));
-      return;
-    }
-
-    if(t.role==='MELODY'){
-      t.notes.forEach(n=>{
-        const state=Array.from(registerStateAt(n.time));
-        state.forEach(reg=>{
-          if(!(REGISTER_DIVISIONS[reg]||[]).includes('MELODY'))return;
-          out.push({time:n.time,duration:n.duration,midi:n.midi,kind:reg});
-        });
-      });
-      return;
-    }
-
-    if(t.role==='PERCUSSION'){
-      t.notes.forEach(n=>out.push({time:n.time,duration:n.duration,midi:n.midi,kind:'Percussion',percussion:true}));
-    }
+    });
   });
 
   return out;
 }
 
 function stopAllAudio(){
-  scheduledAudio.forEach(x=>{try{x.stop?.()}catch{}try{x.disconnect?.()}catch{}});scheduledAudio=[];
+  scheduledTimers.forEach(id=>{try{clearTimeout(id)}catch{}});
+  scheduledTimers=[];
+  scheduledAudio.forEach(x=>{try{x.stop?.()}catch{}try{x.disconnect?.()}catch{}});
+  scheduledAudio=[];
 }
 async function ensureAudio(){
   const AudioCtor=window.AudioContext||window.webkitAudioContext;
@@ -445,24 +420,30 @@ async function ensureAudio(){
   if(audioCtx.state!=='running')throw new Error('Audio context could not be started.');
 }
 function toneConfig(kind){
+  // Simple browser preview:
+  // Bass = triangle
+  // Accompaniment = square
+  // Melody = sawtooth
+  // Registers DO NOT affect preview playback.
   const configs={
-    Bass:{type:'triangle',gain:.16,mult:.5},
-    Accompaniment:{type:'square',gain:.07,mult:1},
+    Bass:{type:'triangle',gain:.14,mult:1},
+    Accompaniment:{type:'square',gain:.08,mult:1},
+    Melody:{type:'sawtooth',gain:.08,mult:1},
 
-    // Cello approximation for the browser preview.
-    Cello:{type:'sawtooth',gain:.10,mult:.5},
-
-    // Forte is the combined strong register; Trombone-like preview.
-    Forte:{type:'sawtooth',gain:.095,mult:1},
-
-    Violin:{type:'sawtooth',gain:.065,mult:1},
+    // These are only used when an already-generated 10-track
+    // organ MIDI is loaded into the editor.
+    Cello:{type:'triangle',gain:.12,mult:1},
+    Forte:{type:'sawtooth',gain:.08,mult:1},
+    Violin:{type:'sawtooth',gain:.08,mult:1},
     Flute:{type:'sine',gain:.10,mult:1},
-    Flageolet:{type:'sine',gain:.075,mult:2},
-    Bourdon:{type:'triangle',gain:.09,mult:.5},
+    Flageolet:{type:'sine',gain:.08,mult:1},
+    Bourdon:{type:'triangle',gain:.10,mult:1},
     Glockenspiel:{type:'sine',gain:.08,mult:2}
   };
+
   return configs[kind]||configs.Accompaniment;
 }
+
 function midiFreq(n){return 440*Math.pow(2,(n-69)/12);}
 function scheduleTone(note,when,kind,remainingDuration){
   const c=toneConfig(kind);const osc=audioCtx.createOscillator();const gain=audioCtx.createGain();
@@ -559,21 +540,35 @@ async function startPlayback(){
   updatePlayButtons();
 
   const start=cursorSec;
-  const now=audioCtx.currentTime+0.05;
   const notes=midiNotesForPreview();
+  let playable=0;
 
+  // Use JavaScript timers to start each note. This avoids relying on a large
+  // batch of future Web Audio events and keeps the preview running reliably.
   notes.forEach(n=>{
-    const end=n.time+n.duration;
-    if(end<start)return;
-    const noteStart=Math.max(n.time,start);
-    const d=end-noteStart;
-    const when=now+(noteStart-start);
-    if(d<=0)return;
-    if(n.percussion)schedulePerc(n,when,d);
-    else scheduleTone(n,when,n.kind,d);
+    const end=Number(n.time||0)+Number(n.duration||0);
+    if(end<=start)return;
+
+    const noteStart=Math.max(Number(n.time||0),start);
+    const remainingDuration=end-noteStart;
+    if(remainingDuration<=0)return;
+
+    const delay=Math.max(0,(noteStart-start)*1000);
+    const timer=setTimeout(()=>{
+      if(!playing)return;
+      try{
+        const when=audioCtx.currentTime+0.01;
+        if(n.percussion)schedulePerc(n,when,remainingDuration);
+        else scheduleTone(n,when,n.kind,remainingDuration);
+      }catch(err){
+        console.error('Note playback error:',err);
+      }
+    },delay);
+    scheduledTimers.push(timer);
+    playable++;
   });
 
-  if(!notes.length){
+  if(!playable){
     playing=false;
     updatePlayButtons();
     setStatus('There are no playable notes in the enabled tracks.');
