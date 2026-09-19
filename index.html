@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Fairground Organ MIDI Compiler v5</title>
+<title>Fairground Organ MIDI Compiler v7</title>
 <script src="https://unpkg.com/@tonejs/midi"></script>
 <style>
 :root{--bg:#171717;--panel:#242424;--panel2:#1c1c1c;--border:#3d3d3d;--text:#eee;--muted:#aaa;--blue:#1677d2;--green:#2e9f56;--red:#b83b3b;--orange:#c98721;--timeline:#111;--grid:#2d2d2d;--playhead:#32a5ff;--paper:#fbf7f0}
@@ -33,8 +33,8 @@ input[type=text]{min-width:240px}.btns{display:flex;gap:8px;flex-wrap:wrap}butto
 <body>
 <div class="container">
     <div class="panel">
-        <h1>Fairground Organ MIDI Compiler v5</h1>
-        <p style="margin:0">MIDI editor + registration timeline + 101-hole tracker roll + physical MIDI pipe string data + 10-track organ MIDI.</p>
+        <h1>Fairground Organ MIDI Compiler v7</h1>
+        <p style="margin:0">MIDI editor + registration timeline + 101-hole tracker roll + physical MIDI pipe string data + register-change string data + 10-track organ MIDI.</p>
         <div class="controls" style="margin-top:12px">
             <div class="field"><label>MIDI FILE</label><input id="midi-file" type="file" accept=".mid,.midi"></div>
             <div class="field"><label>OUTPUT NAME</label><input id="file-name" type="text" placeholder="Song name"></div>
@@ -43,7 +43,7 @@ input[type=text]{min-width:240px}.btns{display:flex;gap:8px;flex-wrap:wrap}butto
         <div id="format-badge" style="margin-top:10px"></div>
         <div class="legend">
             <span>Source Ch 1 = Bass</span><span>Source Ch 2 = Accompaniment</span><span>Source Ch 3 = Melody</span><span>Source Ch 10 = Percussion</span><span>Cello = Bass</span><span>Forte = Bass + Melody</span><span>Other registers = Melody</span>
-            <span>Output Ch 1–10 = organ outputs</span>
+            <span>Output Ch 1–10 = organ outputs</span><span>String register controls: 1 Cancel, 2 Cello, 3 Flute, 4 Glockenspiel, 5 Bourdon, 6 Violin, 7 Forte, 15 Flageolet</span>
         </div>
         <div id="status" class="status"></div>
     </div>
@@ -66,7 +66,7 @@ input[type=text]{min-width:240px}.btns{display:flex;gap:8px;flex-wrap:wrap}butto
             </div>
             <div class="register-panel">
                 <h3>Registration</h3>
-                <div class="register-help">Register buttons add an ON event at the current playhead. They do not toggle OFF. Use Cancel Registers to clear the active register state.</div>
+                <div class="register-help">Register buttons add an ON event at the current playhead. They do not toggle OFF. Use Cancel Registers to clear the active register state. Register changes are included in Organ String Data. Flageolet is a register too and uses String Data control 15; it has no dedicated physical hole in the supplied 1–14 tracker layout.</div>
                 <div id="register-grid" class="register-grid"></div>
                 <button id="cancel-registers" class="cancel">CANCEL REGISTERS</button>
                 <div id="active-registers" class="active-state">No registers active.</div>
@@ -108,7 +108,7 @@ input[type=text]{min-width:240px}.btns{display:flex;gap:8px;flex-wrap:wrap}butto
 
 <script>
 /* ============================================================
-   FAIRGROUND ORGAN COMPILER V5
+   FAIRGROUND ORGAN COMPILER V7
    - Source MIDI: Ch1 Bass, Ch2 Accompaniment, Ch3 Melody, Ch10 Percussion.
    - Output MIDI: Ch1 Bass, Ch2 Cello, Ch3 Accompaniment, Ch4 Forte,
      Ch5 Violin, Ch6 Flute, Ch7 Flageolet, Ch8 Bourdon,
@@ -169,6 +169,13 @@ const PHYSICAL_CONTROLS = {
    tracker list does not provide a Flageolet control hole. We therefore
    never invent a hole number for it. */
 const REGISTER_TRACKER_HOLES = {Cello:2,Flute:3,Glockenspiel:4,Bourdon:5,Violin:6,Forte:7,Flageolet:null};
+
+/* Register control codes used ONLY in Organ String Data.
+   Musical pipe values remain physical MIDI 31–96.
+   Flageolet uses 15 because 1–14 are already reserved by the existing
+   register/percussion controls and Flageolet has no dedicated tracker hole. */
+const REGISTER_STRING_CODES = {Cello:2,Flute:3,Glockenspiel:4,Bourdon:5,Violin:6,Forte:7,Flageolet:15};
+const CANCEL_REGISTER_STRING_CODE = 1;
 
 /* Source percussion notes observed in the supplied test MIDI:
    34/35 = bass drum family, 38 = alternating snare+wood block hit,
@@ -576,15 +583,30 @@ function physicalEvents(){
   // ------------------------------------------------------------
   registrationEvents.forEach(e=>{
     if(e.type==='CANCEL'){
-      spans.push({hole:1,value:1,start:e.time,end:e.time+REGISTER_PULSE_MS/1000,type:'REGISTER'});
+      spans.push({
+        hole:1,
+        value:CANCEL_REGISTER_STRING_CODE,
+        start:e.time,
+        end:e.time+REGISTER_PULSE_MS/1000,
+        type:'REGISTER'
+      });
       return;
     }
 
     const hole=REGISTER_TRACKER_HOLES[e.name];
-    // Flageolet has no physical control hole in the supplied 1–14 map.
-    if(hole!==null&&hole!==undefined){
-      spans.push({hole,value:hole,start:e.time,end:e.time+REGISTER_PULSE_MS/1000,type:'REGISTER'});
-    }
+    const value=REGISTER_STRING_CODES[e.name];
+
+    if(value===undefined)return;
+
+    /* Flageolet has no dedicated physical tracker hole, but it MUST
+       still be represented in Organ String Data as register control 15. */
+    spans.push({
+      hole:hole,
+      value:value,
+      start:e.time,
+      end:e.time+REGISTER_PULSE_MS/1000,
+      type:'REGISTER'
+    });
   });
 
   // ------------------------------------------------------------
@@ -823,10 +845,14 @@ function renderRoll(spans){
   const container=$('roll-container');
   container.innerHTML='';
   canvases=[];
-  if(!spans.length)return 0;
 
-  const first=Math.min(...spans.map(s=>s.start));
-  const normalized=spans.map(s=>({
+  // Some String Data controls (currently Flageolet) have no physical
+  // tracker hole. They belong in the string but not on the paper roll.
+  const rollSpans=spans.filter(s=>Number.isFinite(s.hole));
+  if(!rollSpans.length)return 0;
+
+  const first=Math.min(...rollSpans.map(s=>s.start));
+  const normalized=rollSpans.map(s=>({
     hole:s.hole,
     start:(s.start-first)*ROLL_SPEED,
     end:(s.end-first)*ROLL_SPEED
@@ -919,7 +945,7 @@ function generateOutputs(){
   $('stat-tracks').textContent=tracks.length;$('stat-notes').textContent=countNotes();$('stat-regs').textContent=registrationEvents.length;$('stat-pages').textContent=pages;$('stat-ignored').textContent=ignored;
   $('summary-panel').classList.remove('hidden');$('output-panel').classList.remove('hidden');$('roll-panel').classList.remove('hidden');
   const flags=[];
-  if(registrationEvents.some(e=>e.name==='Flageolet'))flags.push('Flageolet has no assigned physical tracker control hole in the supplied 1–14 layout, so its registration event is not punched into the roll; its generated MIDI track is still created.');
+  if(registrationEvents.some(e=>e.name==='Flageolet'))flags.push('Flageolet is included as a register. It has no dedicated physical tracker hole, so it is not punched into the paper roll; its register event IS included in Organ String Data as control 15, and its generated MIDI track is still created.');
   if(sourceMode==='SOURCE')flags.push('Physical pipes: Bass MIDI 31–48; Accompaniment MIDI 48–79; Melody MIDI 60–96. Paper-roll holes remain Bass 15–32, Accompaniment 33–64, Melody 65–101. Organ String Data now stores actual physical pipe MIDI numbers for pipe notes instead of tracker-hole numbers. The roll renders Bass, Accompaniment, and Melody once; register output tracks do not create duplicate physical note holes.');
   $('mapping-note').textContent=flags.join(' ');
   setStatus(`Outputs generated: ${pages} paper-roll page(s), ${generatedString.length.toLocaleString()} string characters, 10-track organ MIDI.`);
