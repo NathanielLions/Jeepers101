@@ -437,7 +437,13 @@ function midiNotesForPreview(){
 function stopAllAudio(){
   scheduledAudio.forEach(x=>{try{x.stop?.()}catch{}try{x.disconnect?.()}catch{}});scheduledAudio=[];
 }
-function ensureAudio(){if(!audioCtx)audioCtx=new (window.AudioContext||window.webkitAudioContext)();if(audioCtx.state==='suspended')audioCtx.resume();}
+async function ensureAudio(){
+  const AudioCtor=window.AudioContext||window.webkitAudioContext;
+  if(!AudioCtor)throw new Error('Web Audio is not supported by this browser.');
+  if(!audioCtx)audioCtx=new AudioCtor();
+  if(audioCtx.state==='suspended')await audioCtx.resume();
+  if(audioCtx.state!=='running')throw new Error('Audio context could not be started.');
+}
 function toneConfig(kind){
   const configs={
     Bass:{type:'triangle',gain:.16,mult:.5},
@@ -536,12 +542,45 @@ function schedulePerc(note,when,duration){
   }
 }
 
-function startPlayback(){
-  if(playing)return; if(!midi)return; ensureAudio(); stopAllAudio();playing=true;playWallStart=performance.now();playCursorStart=cursorSec;updatePlayButtons();
-  const start=cursorSec;const now=audioCtx.currentTime+.05;
-  midiNotesForPreview().forEach(n=>{
-    const end=n.time+n.duration;if(end<start)return;const noteStart=Math.max(n.time,start);const d=end-noteStart;const when=now+(noteStart-start);if(d<=0)return;if(n.percussion)schedulePerc(n,when,d);else scheduleTone(n,when,n.kind,d);
+async function startPlayback(){
+  if(playing||!midi)return;
+  try{
+    await ensureAudio();
+  }catch(err){
+    console.error(err);
+    setStatus(`Audio playback failed: ${err.message}`);
+    return;
+  }
+
+  stopAllAudio();
+  playing=true;
+  playWallStart=performance.now();
+  playCursorStart=cursorSec;
+  updatePlayButtons();
+
+  const start=cursorSec;
+  const now=audioCtx.currentTime+0.05;
+  const notes=midiNotesForPreview();
+
+  notes.forEach(n=>{
+    const end=n.time+n.duration;
+    if(end<start)return;
+    const noteStart=Math.max(n.time,start);
+    const d=end-noteStart;
+    const when=now+(noteStart-start);
+    if(d<=0)return;
+    if(n.percussion)schedulePerc(n,when,d);
+    else scheduleTone(n,when,n.kind,d);
   });
+
+  if(!notes.length){
+    playing=false;
+    updatePlayButtons();
+    setStatus('There are no playable notes in the enabled tracks.');
+    return;
+  }
+
+  setStatus(`Playing from ${fmt(start)}.`);
   requestAnimationFrame(playLoop);
 }
 function playLoop(){if(!playing)return;const elapsed=(performance.now()-playWallStart)/1000;cursorSec=playCursorStart+elapsed;if(cursorSec>=durationSec){cursorSec=durationSec;playing=false;stopAllAudio();updatePlayButtons();updateCursorUI();renderRegisters();renderTimeline();return;}updateCursorUI();renderRegisters();renderTimeline();requestAnimationFrame(playLoop);}
@@ -920,9 +959,9 @@ $('cancel-registers').onclick=addCancel;$('generate-btn').onclick=generateOutput
 $('copy-string').onclick=async()=>{if(!generatedString)return;try{await navigator.clipboard.writeText(generatedString);setStatus('Organ string data copied.');}catch{ $('string-output').select();document.execCommand('copy');setStatus('Organ string data copied.');}};
 $('download-string').onclick=()=>{if(generatedString)downloadBlob(new Blob([generatedString],{type:'text/plain'}),safeName($('file-name').value)+'-organ-string.txt');};
 $('download-midi').onclick=()=>{if(generatedMidi)downloadBlob(new Blob([generatedMidi.toArray()],{type:'audio/midi'}),safeName($('file-name').value)+'-fairground-organ.mid');};
-$('download-source-btn').onclick=()=>{if(!midi)return;downloadBlob(new Blob([midi.toArray()],{type:'audio/midi'}),safeName($('file-name').value)+'-edited-source.mid');};const base=safeName($('file-name').value);canvases.forEach((c,i)=>setTimeout(()=>c.toBlob(b=>b&&downloadBlob(b,`${base}-roll-page-${i+1}.png`),'image/png'),i*250));};
+$('download-source-btn').onclick=()=>{if(!midi)return;downloadBlob(new Blob([midi.toArray()],{type:'audio/midi'}),safeName($('file-name').value)+'-edited-source.mid');};
 window.addEventListener('resize',()=>{if(midi)renderTimeline();});
-window.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){e.preventDefault();e.shiftKey?redo():undo();}else if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='y'){e.preventDefault();redo();}else if(e.code==='Space'&&!e.target.matches('input,textarea,select')){e.preventDefault();playing?pausePlayback():startPlayback();}});
+window.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){e.preventDefault();e.shiftKey?redo():undo();}else if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='y'){e.preventDefault();redo();}else if(e.code==='Space'&&!e.target.matches('input,textarea,select')){e.preventDefault();if(playing)pausePlayback();else void startPlayback();}});
 
 function renderAll(){if(!midi)return;renderTracks();renderRegisters();updateCursorUI();updateHistoryButtons();renderTimeline();}
 
