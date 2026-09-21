@@ -3,91 +3,613 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Fairground Organ String Data Piano Roll</title>
+<title>Fairground Organ MIDI → String Data Piano Roll</title>
 <style>
-*{box-sizing:border-box}body{margin:0;background:#101216;color:#eee;font:14px Arial,sans-serif}
-#app{height:100vh;display:flex;flex-direction:column}header{padding:9px;background:#1b1e24;border-bottom:1px solid #3a3e47;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+*{box-sizing:border-box}
+body{margin:0;background:#101216;color:#eee;font:14px Arial,sans-serif}
+#app{height:100vh;display:flex;flex-direction:column}
+header{padding:9px;background:#1b1e24;border-bottom:1px solid #3a3e47;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 button,select,input{font:inherit;background:#282d36;color:#eee;border:1px solid #4a505c;border-radius:5px;padding:7px}
 button{cursor:pointer}button.primary{background:#315f95}button.danger{background:#743333}
+#file{max-width:250px}
 #status{margin-left:auto;color:#aeb4c0;font-size:12px}
 #main{flex:1;min-height:0;display:flex}
-#left{width:215px;min-width:215px;overflow:auto;background:#1b1e24;border-right:1px solid #3a3e47}
-h3{font-size:12px;color:#aeb4c0;margin:12px}.tool{padding:8px 12px;border-bottom:1px solid #292d35;cursor:pointer}.tool.active{background:#2a4058}
+#left{width:225px;min-width:225px;overflow:auto;background:#1b1e24;border-right:1px solid #3a3e47}
+h3{font-size:12px;color:#aeb4c0;margin:12px}
+.tool{padding:8px 12px;border-bottom:1px solid #292d35;cursor:pointer}
+.tool.active{background:#2a4058}
 #rollWrap{flex:1;overflow:auto;background:#0d0f13}
 #roll{position:relative;background:repeating-linear-gradient(to bottom,#0d0f13 0,#0d0f13 19px,#282c34 20px);min-width:27000px}
 .event{position:absolute;height:16px;border-radius:3px;border:1px solid #ddd8;z-index:5;cursor:pointer;min-width:4px}
-.event.note{background:#4d8cff}.event.register{background:#c7833e;height:12px}.event.division{background:#65a565;height:10px}.event.percussion{background:#9361bd}
-.event:hover{filter:brightness(1.2)}.label{position:absolute;left:0;width:48px;height:20px;background:#181b21;color:#858c99;font-size:10px;padding:4px;z-index:4;border-right:1px solid #333}
-#bottom{display:flex;gap:8px;align-items:center;padding:8px;background:#1b1e24;border-top:1px solid #3a3e47}.small{font-size:11px;color:#aeb4c0}
+.event.note{background:#4d8cff}
+.event.register{background:#c7833e;height:12px}
+.event.division{background:#65a565;height:10px}
+.event.percussion{background:#9361bd}
+.event.imported{background:#4d8cff}
+.event:hover{filter:brightness(1.2)}
+.label{position:absolute;left:0;width:48px;height:20px;background:#181b21;color:#858c99;font-size:10px;padding:4px;z-index:4;border-right:1px solid #333}
+#bottom{display:flex;gap:8px;align-items:center;padding:8px;background:#1b1e24;border-top:1px solid #3a3e47}
+.small{font-size:11px;color:#aeb4c0}
 #stringOut{flex:1;min-width:250px;white-space:nowrap;overflow:hidden;background:#11141a;border:1px solid #414752;border-radius:4px;padding:7px;font:11px monospace}
+#stats{font-size:11px;color:#9da4b1;padding:0 12px 12px;line-height:1.45}
 </style>
 </head>
 <body>
 <div id="app">
 <header>
-<button id="newBtn">New</button><button id="playBtn" class="primary">Play</button>
-<button id="cancelBtn" class="danger">Cancel / All Off</button><button id="clearBtn">Clear</button>
-<label>Snap <select id="snap"><option value="125">1/8</option><option value="250" selected>1/4</option><option value="500">1/2</option><option value="1000">1 bar</option></select></label>
-<label>Tool <select id="tool"><option value="place">Place</option><option value="erase">Erase</option></select></label>
-<span id="status">Select a register or division, then click the roll.</span>
+<label>MIDI:
+<input id="file" type="file" accept=".mid,.midi">
+</label>
+<button id="processBtn" class="primary">Import / Process MIDI</button>
+<button id="playBtn">Play</button>
+<button id="cancelBtn" class="danger">Cancel / All Off</button>
+<button id="clearBtn">Clear</button>
+<label>Snap
+<select id="snap">
+<option value="125">1/8</option>
+<option value="250" selected>1/4</option>
+<option value="500">1/2</option>
+<option value="1000">1 bar</option>
+</select>
+</label>
+<label>Tool
+<select id="tool"><option value="place">Place</option><option value="erase">Erase</option></select>
+</label>
+<span id="status">Load a MIDI file first.</span>
 </header>
+
 <div id="main">
-<aside id="left"><h3>REGISTERS</h3><div id="regs"></div><h3>DIVISIONS</h3><div id="divs"></div><h3>PERCUSSION</h3><div id="percs"></div>
+<aside id="left">
+<h3>REGISTERS</h3><div id="regs"></div>
+<h3>DIVISIONS</h3><div id="divs"></div>
+<h3>PERCUSSION</h3><div id="percs"></div>
 <h3>NOTE PLACEMENT</h3><div class="tool" id="noteTool">MIDI Note</div>
+<div id="stats"></div>
 </aside>
 <section id="rollWrap"><div id="roll"></div></section>
 </div>
-<div id="bottom"><span class="small">String Data</span><div id="stringOut">0,1</div><button id="copy">Copy</button><button id="download">Download .txt</button></div>
+
+<div id="bottom">
+<span class="small">String Data</span>
+<div id="stringOut">0,1</div>
+<button id="copy">Copy</button>
+<button id="download">Download .txt</button>
 </div>
+</div>
+
 <script>
-(()=> {
+(() => {
+'use strict';
+
 const REG=[[2,'Cello'],[3,'Flute'],[4,'Glockenspiel'],[5,'Bourdon'],[6,'Violin'],[7,'Forte'],[15,'Flageolet']];
 const DIV=[[16,'Bass'],[17,'Accompaniment'],[18,'Melody']];
 const PERC=[[9,'Snare Right'],[10,'Wood Block Right'],[11,'Snare Left'],[12,'Wood Block Left'],[13,'Cymbal'],[14,'Bass Drum']];
-const events=[];let selected={type:'register',code:6,name:'Violin'},playing=false,raf=0,start=0;
-const roll=document.querySelector('#roll'),wrap=document.querySelector('#rollWrap'),status=document.querySelector('#status'),out=document.querySelector('#stringOut');
-const ROW=20,MIN=31,MAX=96,PX=.45,TOTAL=60000;
-roll.style.width=(TOTAL*PX)+'px';roll.style.height=((MAX-MIN+1)*ROW)+'px';
 
-function choices(list,parent,type){list.forEach(([code,name])=>{let d=document.createElement('div');d.className='tool';d.textContent=code+': '+name;d.onclick=()=>{selected={type,code,name};document.querySelectorAll('.tool').forEach(x=>x.classList.remove('active'));d.classList.add('active');status.textContent='Selected '+name;};parent.appendChild(d)})}
-choices(REG,document.querySelector('#regs'),'register');choices(DIV,document.querySelector('#divs'),'division');choices(PERC,document.querySelector('#percs'),'percussion');
-document.querySelector('#noteTool').onclick=()=>{selected={type:'note',code:0,name:'MIDI Note'};document.querySelectorAll('.tool').forEach(x=>x.classList.remove('active'));document.querySelector('#noteTool').classList.add('active');status.textContent='Selected MIDI Note; click a pitch row.'};
+const events=[];
+let selected={type:'register',code:6,name:'Violin'};
+let playing=false,raf=0,start=0;
+const ROW=20,MIN=31,MAX=96,PX=.45,TOTAL=60000;
+
+const roll=document.querySelector('#roll');
+const wrap=document.querySelector('#rollWrap');
+const status=document.querySelector('#status');
+const out=document.querySelector('#stringOut');
+const stats=document.querySelector('#stats');
+
+roll.style.width=(TOTAL*PX)+'px';
+roll.style.height=((MAX-MIN+1)*ROW)+'px';
+
+function choices(list,parent,type){
+  list.forEach(([code,name])=>{
+    const d=document.createElement('div');
+    d.className='tool';
+    d.textContent=code+': '+name;
+    d.onclick=()=>{
+      selected={type,code,name};
+      document.querySelectorAll('.tool').forEach(x=>x.classList.remove('active'));
+      d.classList.add('active');
+      status.textContent='Selected '+name;
+    };
+    parent.appendChild(d);
+  });
+}
+choices(REG,document.querySelector('#regs'),'register');
+choices(DIV,document.querySelector('#divs'),'division');
+choices(PERC,document.querySelector('#percs'),'percussion');
+document.querySelector('#noteTool').onclick=()=>{
+  selected={type:'note',code:0,name:'MIDI Note'};
+  document.querySelectorAll('.tool').forEach(x=>x.classList.remove('active'));
+  document.querySelector('#noteTool').classList.add('active');
+  status.textContent='Selected MIDI Note; click a pitch row.';
+};
 document.querySelector('#regs .tool').classList.add('active');
 
-function timeX(t){return t*PX}function xTime(x){let s=+document.querySelector('#snap').value;return Math.max(0,Math.round((x/PX)/s)*s)}
-function noteY(n){return(MAX-n)*ROW}function yNote(y){return Math.max(MIN,Math.min(MAX,MAX-Math.floor(y/ROW)))}
+function timeX(t){return t*PX}
+function xTime(x){
+  const s=+document.querySelector('#snap').value;
+  return Math.max(0,Math.round((x/PX)/s)*s);
+}
+function noteY(n){return(MAX-n)*ROW}
+function yNote(y){return Math.max(MIN,Math.min(MAX,MAX-Math.floor(y/ROW)))}
 
 function render(){
-roll.querySelectorAll('.event,.label,.gridline').forEach(x=>x.remove());
-for(let n=MAX;n>=MIN;n--){let l=document.createElement('div');l.className='label';l.textContent=n;l.style.top=noteY(n)+'px';roll.appendChild(l)}
-for(let t=0;t<=TOTAL;t+=1000){let l=document.createElement('div');l.className='gridline';l.style.position='absolute';l.style.top=0;l.style.bottom=0;l.style.left=timeX(t)+'px';l.style.width=(t%4000===0?'2px':'1px');l.style.background=t%4000===0?'#555d69':'#353a44';l.style.pointerEvents='none';roll.appendChild(l)}
-events.forEach((e,i)=>{let d=document.createElement('div');d.className='event '+e.type;d.style.left=timeX(e.time)+'px';d.style.top=(e.type==='note'?noteY(e.note)+2:e.type==='register'?3:e.type==='division'?21:38)+'px';d.style.width=Math.max(4,timeX(e.duration||180))+'px';d.title=e.name||((e.type==='note'?'MIDI '+e.note:e.code)+' @ '+e.time+'ms');d.onclick=ev=>{ev.stopPropagation();if(document.querySelector('#tool').value==='erase'){events.splice(i,1);render();encode()}};d.oncontextmenu=ev=>{ev.preventDefault();events.splice(i,1);render();encode()};roll.appendChild(d)})
+  roll.querySelectorAll('.event,.label,.gridline').forEach(x=>x.remove());
+
+  for(let n=MAX;n>=MIN;n--){
+    const l=document.createElement('div');
+    l.className='label';
+    l.textContent=n;
+    l.style.top=noteY(n)+'px';
+    roll.appendChild(l);
+  }
+
+  for(let t=0;t<=TOTAL;t+=1000){
+    const l=document.createElement('div');
+    l.className='gridline';
+    l.style.position='absolute';
+    l.style.top=0;
+    l.style.bottom=0;
+    l.style.left=timeX(t)+'px';
+    l.style.width=(t%4000===0?'2px':'1px');
+    l.style.background=t%4000===0?'#555d69':'#353a44';
+    l.style.pointerEvents='none';
+    roll.appendChild(l);
+  }
+
+  events.forEach((e,i)=>{
+    const d=document.createElement('div');
+    d.className='event '+e.type+(e.imported?' imported':'');
+    d.style.left=timeX(e.time)+'px';
+    d.style.top=(e.type==='note'?noteY(e.note)+2:e.type==='register'?3:e.type==='division'?21:38)+'px';
+    d.style.width=Math.max(4,timeX(e.duration||180))+'px';
+    d.title=e.name||((e.type==='note'?'MIDI '+e.note:e.code)+' @ '+e.time+'ms');
+
+    d.onclick=ev=>{
+      ev.stopPropagation();
+      if(document.querySelector('#tool').value==='erase'){
+        events.splice(i,1);
+        render();
+        encode();
+      }
+    };
+    d.oncontextmenu=ev=>{
+      ev.preventDefault();
+      events.splice(i,1);
+      render();
+      encode();
+    };
+    roll.appendChild(d);
+  });
 }
+
 function add(clientX,clientY){
-if(document.querySelector('#tool').value==='erase')return;
-let r=roll.getBoundingClientRect(),t=xTime(clientX-r.left),y=clientY-r.top;
-if(selected.type==='note'){let n=yNote(y);if(events.some(e=>e.type==='note'&&e.note===n&&e.time===t)){status.textContent='That note already exists at that time.';return}events.push({type:'note',note:n,time:t,duration:+document.querySelector('#snap').value,name:'MIDI '+n})}
-else {if(events.some(e=>e.type===selected.type&&e.code===selected.code&&e.time===t)){status.textContent='That event already exists there.';return}events.push({type:selected.type,code:selected.code,time:t,duration:selected.type==='register'?300:180,name:selected.name})}
-events.sort((a,b)=>a.time-b.time);render();encode();status.textContent='Placed '+(selected.name)+' at '+t+' ms'
+  if(document.querySelector('#tool').value==='erase')return;
+
+  const r=roll.getBoundingClientRect();
+  const t=xTime(clientX-r.left);
+  const y=clientY-r.top;
+
+  if(selected.type==='note'){
+    const n=yNote(y);
+    if(events.some(e=>e.type==='note'&&e.note===n&&e.time===t)){
+      status.textContent='That note already exists at that time.';
+      return;
+    }
+    events.push({type:'note',note:n,time:t,duration:+document.querySelector('#snap').value,name:'MIDI '+n});
+  }else{
+    if(events.some(e=>e.type===selected.type&&e.code===selected.code&&e.time===t)){
+      status.textContent='That event already exists there.';
+      return;
+    }
+    events.push({
+      type:selected.type,
+      code:selected.code,
+      time:t,
+      duration:selected.type==='register'?300:180,
+      name:selected.name
+    });
+  }
+
+  events.sort((a,b)=>a.time-b.time);
+  render();
+  encode();
+  status.textContent='Placed '+selected.name+' at '+t+' ms';
 }
+
 roll.onclick=e=>add(e.clientX,e.clientY);
 
 function encode(){
-if(!events.length){out.textContent='0,1';return '0,1'}
-let a=[...events].sort((x,y)=>x.time-y.time),last=0,groups=[];
-a.forEach(e=>{let vals=e.type==='note'?[18,e.note]:[e.code];groups.push([Math.max(0,Math.round(e.time-last)),...vals]);last=e.time});
-groups.push([250,1]);let s=groups.map(x=>x.join(',')).join('|');out.textContent=s;return s
-}
-function stop(){playing=false;if(raf)cancelAnimationFrame(raf);raf=0}
-function play(){if(!events.length){status.textContent='Nothing to play.';return}playing=true;start=performance.now();status.textContent='Playing…';let end=Math.max(...events.map(e=>e.time+e.duration));function f(){if(!playing)return;let t=performance.now()-start;if(t>=end){stop();status.textContent='Playback finished.';return}wrap.scrollLeft=Math.max(0,timeX(t)-180);raf=requestAnimationFrame(f)}raf=requestAnimationFrame(f)}
+  if(!events.length){
+    out.textContent='0,1';
+    return '0,1';
+  }
 
-document.querySelector('#playBtn').onclick=()=>playing?stop():play();
-document.querySelector('#clearBtn').onclick=()=>{events.length=0;stop();render();encode();status.textContent='Roll cleared.'};
-document.querySelector('#newBtn').onclick=()=>{events.length=0;stop();render();encode();status.textContent='New roll.'};
-document.querySelector('#cancelBtn').onclick=()=>{let end=events.length?Math.max(...events.map(e=>e.time+e.duration)):0;events.push({type:'register',code:1,time:end,duration:120,name:'ALL OFF / RESET'});stop();render();encode();status.textContent='Cancel / All Off inserted.'};
-document.querySelector('#copy').onclick=async()=>{try{await navigator.clipboard.writeText(encode());status.textContent='String Data copied.'}catch{status.textContent='Copy unavailable; select the String Data manually.'}};
-document.querySelector('#download').onclick=()=>{let b=new Blob([encode()],{type:'text/plain'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='fairground-organ-string-data.txt';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)};
-render();encode();
+  const a=[...events].sort((x,y)=>x.time-y.time);
+  let last=0;
+  const groups=[];
+
+  a.forEach(e=>{
+    let vals;
+    if(e.type==='note') vals=[18,e.note];
+    else vals=[e.code];
+
+    groups.push([Math.max(0,Math.round(e.time-last)),...vals]);
+    last=e.time;
+  });
+
+  groups.push([250,1]);
+  const s=groups.map(x=>x.join(',')).join('|');
+  out.textContent=s;
+  return s;
+}
+
+/* ---------- MIDI PARSER / CLEANER ---------- */
+
+function u8(a,i){return a[i]}
+function u16(a,i){return (a[i]<<8)|a[i+1]}
+function u32(a,i){return (a[i]*16777216)+(a[i+1]<<16)+(a[i+2]<<8)+a[i+3]}
+
+function vlq(a,pos){
+  let v=0,b;
+  do{
+    b=a[pos.i++];
+    v=(v<<7)|(b&127);
+  }while(b&128);
+  return v;
+}
+
+function readString(a,start,len){
+  let s='';
+  for(let i=start;i<start+len&&i<a.length;i++)s+=String.fromCharCode(a[i]);
+  return s;
+}
+
+function parseMidi(buffer){
+  const a=new Uint8Array(buffer);
+  if(readString(a,0,4)!=='MThd')throw new Error('Not a valid Standard MIDI file.');
+
+  const headerLen=u32(a,4);
+  const format=u16(a,8);
+  const trackCount=u16(a,10);
+  const division=u16(a,12);
+
+  if(division&0x8000)throw new Error('SMPTE MIDI timing is not supported.');
+  const ticksPerBeat=division;
+  let p=8+headerLen;
+
+  const tracks=[];
+  const tempos=[];
+  const allNotes=[];
+
+  for(let tr=0;tr<trackCount;tr++){
+    if(readString(a,p,4)!=='MTrk')throw new Error('Invalid MIDI track header.');
+    const len=u32(a,p+4);
+    const end=p+8+len;
+    let i=p+8,tick=0,status=0;
+    const active=new Map();
+    const notes=[];
+    const trackTempos=[];
+
+    while(i<end){
+      const pos={i};
+      const delta=vlq(a,pos);
+      i=pos.i;
+      tick+=delta;
+
+      let b=a[i++];
+      if(b<0x80){
+        i--;
+        b=status;
+      }else{
+        status=b;
+      }
+
+      if(b===0xFF){
+        const type=a[i++];
+        const pos2={i};
+        const n=vlq(a,pos2);
+        i=pos2.i;
+
+        if(type===0x51&&n===3){
+          const us=(a[i]<<16)|(a[i+1]<<8)|a[i+2];
+          trackTempos.push({tick,us});
+          tempos.push({tick,us});
+        }
+
+        i+=n;
+        continue;
+      }
+
+      if(b===0xF0||b===0xF7){
+        const pos2={i};
+        const n=vlq(a,pos2);
+        i=pos2.i+n;
+        continue;
+      }
+
+      const type=b&0xF0;
+      const ch=b&15;
+
+      if(type===0x80||type===0x90){
+        const note=a[i++];
+        const vel=a[i++];
+
+        if(type===0x90&&vel>0){
+          const key=ch+':'+note;
+          if(!active.has(key))active.set(key,{tick,note,channel:ch,velocity:127});
+          else{
+            /* Layered/simultaneous note-on: keep the newest one and
+               terminate the previous one at this tick. */
+            const old=active.get(key);
+            notes.push({start:old.tick,end:tick,note:old.note,velocity:127,channel:old.channel});
+            active.set(key,{tick,note,channel:ch,velocity:127});
+          }
+        }else{
+          const key=ch+':'+note;
+          if(active.has(key)){
+            const old=active.get(key);
+            notes.push({start:old.tick,end:tick,note:old.note,velocity:127,channel:old.channel});
+            active.delete(key);
+          }
+        }
+      }else if(type===0xB0){
+        /* CC64 sustain pedal is deliberately ignored/removed.
+           Other controllers are also irrelevant to the String Data roll. */
+        i+=2;
+      }else if(type===0xC0){
+        i+=1;
+      }else if(type===0xD0){
+        i+=1;
+      }else if(type===0xA0||type===0xE0){
+        i+=2;
+      }else{
+        throw new Error('Unsupported MIDI event at byte '+i+'.');
+      }
+    }
+
+    /* Close notes that never received a note-off. */
+    active.forEach(old=>{
+      notes.push({start:old.tick,end:tick,note:old.note,velocity:127,channel:old.channel});
+    });
+
+    tracks.push({notes,tempos:trackTempos});
+    p=end;
+  }
+
+  /* Build a global tempo map. Default MIDI tempo is 120 BPM. */
+  tempos.push({tick:0,us:500000});
+  tempos.sort((x,y)=>x.tick-y.tick);
+
+  const tempoMap=[];
+  let currentUs=500000;
+  let lastTick=0;
+  let lastMs=0;
+
+  for(const t of tempos){
+    if(t.tick<lastTick)continue;
+    if(t.tick===lastTick){
+      currentUs=t.us;
+      continue;
+    }
+    lastMs+=(t.tick-lastTick)*currentUs/1000/ticksPerBeat;
+    lastTick=t.tick;
+    currentUs=t.us;
+    tempoMap.push({tick:lastTick,ms:lastMs,us:currentUs});
+  }
+
+  function tickToMs(tick){
+    let us=500000,baseTick=0,baseMs=0;
+    for(const t of tempoMap){
+      if(t.tick>tick)break;
+      baseTick=t.tick;baseMs=t.ms;us=t.us;
+    }
+    return baseMs+(tick-baseTick)*us/1000/ticksPerBeat;
+  }
+
+  for(const tr of tracks){
+    for(const n of tr.notes){
+      if(n.end<=n.start)continue;
+      allNotes.push({
+        time:tickToMs(n.start),
+        duration:tickToMs(n.end)-tickToMs(n.start),
+        note:n.note,
+        velocity:127,
+        channel:n.channel
+      });
+    }
+  }
+
+  /*
+    Remove overlapping/layered notes globally by MIDI pitch.
+
+    For the same pitch:
+      - if a later note begins before the previous note ends,
+        the previous note is shortened to the new start;
+      - if they start at exactly the same time, the earlier one
+        is discarded;
+      - no two resulting notes of the same pitch overlap.
+  */
+  const byPitch=new Map();
+  allNotes.forEach(n=>{
+    if(!byPitch.has(n.note))byPitch.set(n.note,[]);
+    byPitch.get(n.note).push(n);
+  });
+
+  const cleaned=[];
+  byPitch.forEach(list=>{
+    list.sort((x,y)=>x.time-y.time || x.duration-y.duration);
+
+    let previous=null;
+    for(const n of list){
+      const end=n.time+n.duration;
+      if(!previous){
+        previous={...n};
+        continue;
+      }
+
+      const prevEnd=previous.time+previous.duration;
+
+      if(n.time<prevEnd){
+        /* Remove/truncate the earlier layer so the new note wins. */
+        previous.duration=n.time-previous.time;
+        if(previous.duration>0)cleaned.push(previous);
+        previous={...n};
+      }else{
+        if(previous.duration>0)cleaned.push(previous);
+        previous={...n};
+      }
+    }
+
+    if(previous&&previous.duration>0)cleaned.push(previous);
+  });
+
+  cleaned.sort((x,y)=>x.time-y.time||x.note-y.note);
+
+  return {
+    format,
+    trackCount,
+    ticksPerBeat,
+    notes:cleaned,
+    originalNoteCount:allNotes.length,
+    cleanedNoteCount:cleaned.length,
+    sustainRemoved:true
+  };
+}
+
+async function importMidi(file){
+  const buffer=await file.arrayBuffer();
+  const midi=parseMidi(buffer);
+
+  events.length=0;
+
+  for(const n of midi.notes){
+    if(n.note<MIN||n.note>MAX)continue;
+    events.push({
+      type:'note',
+      note:n.note,
+      time:n.time,
+      duration:n.duration,
+      velocity:127,
+      imported:true,
+      name:'MIDI '+n.note
+    });
+  }
+
+  const end=events.length?Math.max(...events.map(e=>e.time+e.duration)):0;
+  const width=Math.max(27000,(end+2000)*PX);
+  roll.style.width=width+'px';
+
+  render();
+  encode();
+
+  stats.innerHTML=
+    'MIDI tracks: '+midi.trackCount+'<br>'+
+    'Original note events: '+midi.originalNoteCount+'<br>'+
+    'After overlap/layer cleanup: '+midi.cleanedNoteCount+'<br>'+
+    'Velocity: 127 for every note<br>'+
+    'Sustain CC64: removed<br>'+
+    'Imported notes outside '+MIN+'–'+MAX+' are not displayed.';
+
+  status.textContent='MIDI imported and cleaned. Now place registers/divisions on the roll.';
+}
+
+document.querySelector('#processBtn').onclick=async()=>{
+  const file=document.querySelector('#file').files[0];
+  if(!file){status.textContent='Choose a MIDI file first.';return}
+  try{
+    stop();
+    await importMidi(file);
+  }catch(err){
+    console.error(err);
+    status.textContent='MIDI error: '+err.message;
+  }
+};
+
+document.querySelector('#file').onchange=()=>{
+  const f=document.querySelector('#file').files[0];
+  if(f)status.textContent='Ready to process '+f.name;
+};
+
+function stop(){
+  playing=false;
+  if(raf)cancelAnimationFrame(raf);
+  raf=0;
+}
+
+function play(){
+  if(!events.length){status.textContent='Nothing to play.';return}
+  playing=true;
+  start=performance.now();
+  status.textContent='Playing…';
+
+  const end=Math.max(...events.map(e=>e.time+(e.duration||100)));
+  function f(){
+    if(!playing)return;
+    const t=performance.now()-start;
+    if(t>=end){
+      stop();
+      status.textContent='Playback finished.';
+      return;
+    }
+    wrap.scrollLeft=Math.max(0,timeX(t)-180);
+    raf=requestAnimationFrame(f);
+  }
+  raf=requestAnimationFrame(f);
+}
+
+document.querySelector('#playBtn').onclick=()=>{
+  if(playing)stop();
+  else play();
+};
+
+document.querySelector('#clearBtn').onclick=()=>{
+  events.length=0;
+  stop();
+  render();
+  encode();
+  stats.textContent='';
+  status.textContent='Roll cleared.';
+};
+
+document.querySelector('#newBtn').onclick=()=>{
+  events.length=0;
+  stop();
+  render();
+  encode();
+  stats.textContent='';
+  status.textContent='New roll.';
+};
+
+document.querySelector('#cancelBtn').onclick=()=>{
+  const end=events.length?Math.max(...events.map(e=>e.time+(e.duration||0))):0;
+  events.push({type:'register',code:1,time:end,duration:120,name:'ALL OFF / RESET'});
+  stop();
+  render();
+  encode();
+  status.textContent='Cancel / All Off inserted.';
+};
+
+document.querySelector('#copy').onclick=async()=>{
+  try{
+    await navigator.clipboard.writeText(encode());
+    status.textContent='String Data copied.';
+  }catch{
+    status.textContent='Copy unavailable; select String Data manually.';
+  }
+};
+
+document.querySelector('#download').onclick=()=>{
+  const b=new Blob([encode()],{type:'text/plain;charset=utf-8'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(b);
+  a.download='fairground-organ-string-data.txt';
+  a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+};
+
+render();
+encode();
 })();
 </script>
-</body></html>
+</body>
+</html>
