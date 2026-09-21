@@ -1,3484 +1,541 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-    <title>Fairground Organ MIDI Compiler</title>
-
-    <!--
-        @tonejs/midi
-        Browser API:
-        https://unpkg.com/@tonejs/midi
-    -->
-    <script src="https://unpkg.com/@tonejs/midi"></script>
-
-    <style>
-        :root {
-            --bg: #1e1e1e;
-            --panel: #2a2a2a;
-            --panel-dark: #151515;
-            --border: #444;
-            --text: #e0e0e0;
-            --muted: #999;
-            --blue: #007acc;
-            --blue-hover: #0062a3;
-            --green: #28a745;
-            --green-hover: #218838;
-            --red: #c0392b;
-            --red-hover: #a93226;
-            --orange: #d68910;
-            --active: #3d7cff;
-        }
-
-        * {
-            box-sizing: border-box;
-        }
-
-        body {
-            margin: 0;
-            padding: 20px;
-            font-family:
-                -apple-system,
-                BlinkMacSystemFont,
-                "Segoe UI",
-                Roboto,
-                Helvetica,
-                Arial,
-                sans-serif;
-            background: var(--bg);
-            color: var(--text);
-        }
-
-        .container {
-            width: min(1200px, 100%);
-            margin: 0 auto;
-        }
-
-        h1 {
-            margin-top: 0;
-            margin-bottom: 8px;
-        }
-
-        h2 {
-            margin-top: 0;
-        }
-
-        h3 {
-            margin-top: 0;
-        }
-
-        p {
-            color: var(--muted);
-        }
-
-        .panel {
-            background: var(--panel);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 18px;
-            margin-bottom: 20px;
-        }
-
-        .controls {
-            display: flex;
-            flex-wrap: wrap;
-            align-items: end;
-            gap: 14px;
-        }
-
-        .control-group {
-            display: flex;
-            flex-direction: column;
-            gap: 5px;
-        }
-
-        label {
-            font-size: 13px;
-            font-weight: bold;
-        }
-
-        input[type="file"],
-        input[type="text"],
-        select {
-            background: #3a3a3a;
-            border: 1px solid #555;
-            border-radius: 4px;
-            padding: 9px;
-            color: white;
-        }
-
-        input[type="text"] {
-            width: 260px;
-        }
-
-        button {
-            border: none;
-            border-radius: 5px;
-            padding: 10px 15px;
-            color: white;
-            font-weight: bold;
-            cursor: pointer;
-            transition: background-color 0.15s, transform 0.05s;
-        }
-
-        button:active {
-            transform: translateY(1px);
-        }
-
-        button:disabled {
-            opacity: 0.45;
-            cursor: not-allowed;
-        }
-
-        .btn-blue {
-            background: var(--blue);
-        }
-
-        .btn-blue:hover:not(:disabled) {
-            background: var(--blue-hover);
-        }
-
-        .btn-green {
-            background: var(--green);
-        }
-
-        .btn-green:hover:not(:disabled) {
-            background: var(--green-hover);
-        }
-
-        .btn-red {
-            background: var(--red);
-        }
-
-        .btn-red:hover:not(:disabled) {
-            background: var(--red-hover);
-        }
-
-        .btn-gray {
-            background: #555;
-        }
-
-        .btn-gray:hover:not(:disabled) {
-            background: #666;
-        }
-
-        .status {
-            margin-top: 12px;
-            color: #7dff9d;
-            font-size: 14px;
-            min-height: 20px;
-        }
-
-        .hidden {
-            display: none !important;
-        }
-
-        /* ================================
-           MIDI EDITOR
-           ================================ */
-
-        .editor-layout {
-            display: grid;
-            grid-template-columns: 1fr 330px;
-            gap: 18px;
-        }
-
-        @media (max-width: 900px) {
-            .editor-layout {
-                grid-template-columns: 1fr;
-            }
-        }
-
-        .track-list {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-            max-height: 550px;
-            overflow-y: auto;
-            padding-right: 4px;
-        }
-
-        .track-row {
-            display: grid;
-            grid-template-columns: 35px 1fr auto auto;
-            align-items: center;
-            gap: 10px;
-            background: var(--panel-dark);
-            border: 1px solid #3e3e3e;
-            border-radius: 6px;
-            padding: 10px;
-        }
-
-        .track-row.disabled {
-            opacity: 0.45;
-        }
-
-        .track-number {
-            text-align: center;
-            color: #aaa;
-            font-weight: bold;
-        }
-
-        .track-main {
-            min-width: 0;
-        }
-
-        .track-name {
-            font-weight: bold;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-
-        .track-info {
-            color: #888;
-            font-size: 12px;
-            margin-top: 3px;
-        }
-
-        .track-role {
-            min-width: 155px;
-        }
-
-        .track-enable {
-            width: 18px;
-            height: 18px;
-            cursor: pointer;
-        }
-
-        /* ================================
-           REGISTER EDITOR
-           ================================ */
-
-        .register-panel {
-            background: var(--panel-dark);
-            border: 1px solid #3e3e3e;
-            border-radius: 7px;
-            padding: 14px;
-        }
-
-        .register-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 8px;
-            margin-bottom: 12px;
-        }
-
-        .register-button {
-            background: #444;
-            border: 1px solid #555;
-            min-height: 42px;
-        }
-
-        .register-button:hover {
-            background: #555;
-        }
-
-        .register-button.active {
-            background: var(--active);
-            border-color: #6d9aff;
-            box-shadow: 0 0 8px rgba(61, 124, 255, 0.35);
-        }
-
-        .cancel-registers {
-            width: 100%;
-            background: var(--red);
-        }
-
-        .cancel-registers:hover {
-            background: var(--red-hover);
-        }
-
-        .active-registers {
-            margin-top: 12px;
-            padding: 10px;
-            background: #202020;
-            border-radius: 5px;
-            color: #bbb;
-            font-size: 13px;
-            min-height: 38px;
-        }
-
-        /* ================================
-           OUTPUT
-           ================================ */
-
-        .output-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 18px;
-        }
-
-        @media (max-width: 800px) {
-            .output-grid {
-                grid-template-columns: 1fr;
-            }
-        }
-
-        .output-box {
-            background: var(--panel-dark);
-            border: 1px solid var(--border);
-            border-radius: 7px;
-            padding: 14px;
-        }
-
-        textarea {
-            width: 100%;
-            height: 240px;
-            resize: vertical;
-            background: #0f0f0f;
-            border: 1px solid #333;
-            border-radius: 5px;
-            color: #00ff66;
-            padding: 10px;
-            font-family: "Courier New", monospace;
-            font-size: 12px;
-        }
-
-        .output-buttons {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-            margin-top: 10px;
-        }
-
-        /* ================================
-           PAPER ROLL
-           ================================ */
-
-        .canvas-container {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .canvas-wrapper {
-            width: 100%;
-            overflow-x: auto;
-            text-align: center;
-        }
-
-        canvas {
-            border: 2px solid #444;
-            background: #fbf6eb;
-            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.45);
-            max-width: 100%;
-            height: auto;
-        }
-
-        .canvas-label {
-            color: #aaa;
-            font-size: 13px;
-            margin-bottom: 20px;
-        }
-
-        .summary {
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 10px;
-        }
-
-        @media (max-width: 800px) {
-            .summary {
-                grid-template-columns: repeat(2, 1fr);
-            }
-        }
-
-        .stat {
-            background: #202020;
-            border: 1px solid #383838;
-            border-radius: 5px;
-            padding: 12px;
-        }
-
-        .stat-label {
-            font-size: 12px;
-            color: #888;
-        }
-
-        .stat-value {
-            font-size: 20px;
-            font-weight: bold;
-            margin-top: 3px;
-        }
-
-        .warning {
-            background: rgba(214, 137, 16, 0.15);
-            border: 1px solid rgba(214, 137, 16, 0.5);
-            color: #f0c674;
-            border-radius: 5px;
-            padding: 10px;
-            margin-top: 10px;
-        }
-
-        .success {
-            background: rgba(40, 167, 69, 0.15);
-            border: 1px solid rgba(40, 167, 69, 0.5);
-            color: #8ff0a4;
-            border-radius: 5px;
-            padding: 10px;
-            margin-top: 10px;
-        }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fairground Organ MIDI Compiler v3</title>
+<script src="https://unpkg.com/@tonejs/midi"></script>
+<style>
+:root{--bg:#171717;--panel:#242424;--panel2:#1c1c1c;--border:#3d3d3d;--text:#eee;--muted:#aaa;--blue:#1677d2;--green:#2e9f56;--red:#b83b3b;--orange:#c98721;--timeline:#111;--grid:#2d2d2d;--playhead:#32a5ff;--paper:#fbf7f0}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;padding:18px}
+.container{max-width:1450px;margin:0 auto}
+h1{margin:0 0 6px;font-size:26px}h2{margin:0 0 8px;font-size:20px}h3{margin:0 0 8px;font-size:15px}
+p{color:var(--muted);line-height:1.45}.panel{background:var(--panel);border:1px solid var(--border);border-radius:9px;padding:16px;margin-bottom:16px;box-shadow:0 4px 16px rgba(0,0,0,.2)}
+.controls{display:flex;gap:12px;flex-wrap:wrap;align-items:end}.field{display:flex;flex-direction:column;gap:5px}.field label{font-size:12px;font-weight:700;color:#ccc}
+input[type=file],input[type=text],select{background:#303030;border:1px solid #555;color:#fff;border-radius:5px;padding:9px}
+input[type=text]{min-width:240px}.btns{display:flex;gap:8px;flex-wrap:wrap}button{border:0;border-radius:5px;color:#fff;font-weight:700;padding:9px 13px;cursor:pointer}button:disabled{opacity:.45;cursor:not-allowed}.blue{background:var(--blue)}.green{background:var(--green)}.red{background:var(--red)}.gray{background:#555}.orange{background:var(--orange)}
+.status{margin-top:10px;min-height:18px;color:#86ef9d;font-size:13px}.badge{display:inline-block;padding:4px 8px;border-radius:999px;background:#333;font-size:11px;color:#ccc}.badge.source{background:#204d77}.badge.output{background:#5c471c}
+.legend{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.legend span{font-size:11px;background:#2d2d2d;border:1px solid #444;border-radius:4px;padding:5px 7px;color:#ccc}
+.editor-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.editor-toolbar .spacer{flex:1}.time-readout{font-family:"Courier New",monospace;color:#fff;background:#111;border:1px solid #444;border-radius:5px;padding:8px 10px;min-width:105px;text-align:center}
+.timeline-shell{border:1px solid var(--border);border-radius:7px;overflow:hidden;background:var(--timeline)}.timeline-scroll{overflow:auto;max-height:560px}.timeline-canvas{display:block;background:var(--timeline)}
+.scrubber{margin-top:10px}.scrubber input[type=range]{width:100%}.scrub-row{display:flex;gap:10px;align-items:center}.scrub-row output{font-family:monospace;color:#fff;min-width:120px;text-align:right}
+.track-editor{display:grid;grid-template-columns:1fr 330px;gap:14px;margin-top:14px}@media(max-width:1000px){.track-editor{grid-template-columns:1fr}}
+.track-list{display:flex;flex-direction:column;gap:7px;max-height:420px;overflow:auto}.track-row{display:grid;grid-template-columns:34px 18px minmax(140px,1fr) 130px 85px;align-items:center;gap:8px;background:var(--panel2);border:1px solid #353535;border-radius:6px;padding:8px}.track-row.off{opacity:.45}.track-num{text-align:center;color:#888;font-weight:700}.track-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:700}.track-info{font-size:11px;color:#888;margin-top:2px}.track-enable{width:17px;height:17px}.role-select{width:100%;padding:7px}
+.register-panel{background:var(--panel2);border:1px solid #353535;border-radius:7px;padding:12px}.register-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px}.register-btn{background:#444;border:1px solid #555;min-height:40px}.register-btn.active{background:#2f6fd0;border-color:#6da2ff;box-shadow:0 0 9px rgba(50,130,255,.25)}.register-help{font-size:11px;color:#888;margin:8px 0}.active-state{margin-top:9px;padding:9px;background:#141414;border:1px solid #303030;border-radius:5px;color:#bbb;font-size:12px;min-height:36px}.cancel{width:100%;margin-top:8px;background:var(--red)}
+.events{margin-top:14px;border-top:1px solid #333;padding-top:12px}.event-list{max-height:240px;overflow:auto;display:flex;flex-direction:column;gap:6px}.event-row{display:grid;grid-template-columns:90px 1fr auto;gap:8px;align-items:center;background:#1a1a1a;border:1px solid #333;padding:7px;border-radius:5px}.event-time{font-family:monospace;color:#bbb}.event-add{color:#76d78a}.event-cancel{color:#ff7e7e}.event-flageolet{color:#c6a3ff}
+.output-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}@media(max-width:900px){.output-grid{grid-template-columns:1fr}}.output-box{background:#151515;border:1px solid #343434;border-radius:7px;padding:12px}.output-box textarea{width:100%;height:220px;resize:vertical;background:#0d0d0d;color:#9dffb5;border:1px solid #333;border-radius:5px;padding:9px;font-family:"Courier New",monospace;font-size:11px}
+.roll-container{display:flex;flex-direction:column;align-items:center;gap:8px}.roll-wrap{width:100%;overflow:auto;text-align:center}.roll-wrap canvas{max-width:100%;height:auto;border:1px solid #444;background:var(--paper);box-shadow:0 12px 30px rgba(0,0,0,.35)}.page-label{font-size:12px;color:#999;margin-bottom:12px}
+.stats{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}@media(max-width:800px){.stats{grid-template-columns:repeat(2,1fr)}}.stat{background:#1a1a1a;border:1px solid #333;border-radius:5px;padding:9px}.stat label{font-size:10px;color:#777}.stat strong{display:block;font-size:18px;margin-top:2px}
+.note{font-size:11px;color:#8c8c8c;margin-top:8px}.danger-note{color:#e69b9b}.success-note{color:#94dda6}.hidden{display:none!important}
+</style>
 </head>
-
 <body>
-
 <div class="container">
-
-    <h1>Fairground Organ MIDI Compiler</h1>
-
-    <p>
-        MIDI → MIDI Editor → 101-Hole Tracker Roll + Organ String Data + 10-Track Organ MIDI
-    </p>
-
-    <!-- =========================================================
-         FILE INPUT
-         ========================================================= -->
-
     <div class="panel">
-
-        <div class="controls">
-
-            <div class="control-group">
-                <label for="midi-file">MIDI File</label>
-                <input
-                    id="midi-file"
-                    type="file"
-                    accept=".mid,.midi"
-                >
-            </div>
-
-            <div class="control-group">
-                <label for="custom-title">Output Name</label>
-                <input
-                    id="custom-title"
-                    type="text"
-                    placeholder="Song name..."
-                >
-            </div>
-
-            <button
-                id="parse-btn"
-                class="btn-blue"
-                disabled
-            >
-                Open MIDI Editor
-            </button>
-
+        <h1>Fairground Organ MIDI Compiler v3</h1>
+        <p style="margin:0">MIDI editor + registration timeline + 101-hole tracker roll + organ string data + 10-track organ MIDI.</p>
+        <div class="controls" style="margin-top:12px">
+            <div class="field"><label>MIDI FILE</label><input id="midi-file" type="file" accept=".mid,.midi"></div>
+            <div class="field"><label>OUTPUT NAME</label><input id="file-name" type="text" placeholder="Song name"></div>
+            <div class="btns"><button id="open-btn" class="blue" disabled>Open MIDI Editor</button><button id="reset-btn" class="gray" disabled>Reset Editor</button></div>
         </div>
-
+        <div id="format-badge" style="margin-top:10px"></div>
+        <div class="legend">
+            <span>Source Ch 1 = Bass</span><span>Source Ch 2 = Accompaniment</span><span>Source Ch 3 = Melody</span><span>Source Ch 10 = Percussion</span>
+            <span>Output Ch 1–10 = organ outputs</span>
+        </div>
         <div id="status" class="status"></div>
-
     </div>
-
-    <!-- =========================================================
-         MIDI EDITOR
-         ========================================================= -->
 
     <div id="editor-panel" class="panel hidden">
+        <div class="editor-toolbar">
+            <button id="play-btn" class="green">▶ Play</button><button id="pause-btn" class="gray" disabled>⏸ Pause</button><button id="stop-btn" class="red" disabled>■ Stop</button>
+            <button id="undo-btn" class="gray" disabled>↶ Undo</button><button id="redo-btn" class="gray" disabled>↷ Redo</button>
+            <div class="spacer"></div><div class="time-readout" id="cursor-time">00:00.00</div><div class="badge" id="mode-badge"></div>
+        </div>
+        <div class="scrubber">
+            <div class="scrub-row"><input id="time-slider" type="range" min="0" max="1" step="0.001" value="0" disabled><output id="slider-time">00:00.00</output></div>
+        </div>
+        <div class="timeline-shell" style="margin-top:10px"><div id="timeline-scroll" class="timeline-scroll"><canvas id="timeline-canvas" class="timeline-canvas"></canvas></div></div>
 
-        <h2>MIDI Editor</h2>
-
-        <p>
-            Turn MIDI tracks ON/OFF here. Register buttons are separate:
-            register buttons only turn registers ON. To clear the register
-            state, use Cancel Registers.
-        </p>
-
-        <div class="editor-layout">
-
-            <!-- MIDI TRACKS -->
-
+        <div class="track-editor">
             <div>
-
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-
-                    <h3 style="margin:0;">
-                        MIDI Tracks
-                    </h3>
-
-                    <div style="display:flex; gap:6px;">
-                        <button id="enable-all-btn" class="btn-gray">
-                            Enable All
-                        </button>
-
-                        <button id="disable-all-btn" class="btn-gray">
-                            Disable All
-                        </button>
-                    </div>
-
-                </div>
-
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><h3 style="margin:0">MIDI Tracks</h3><div class="btns"><button id="all-on-btn" class="gray">All ON</button><button id="all-off-btn" class="gray">All OFF</button></div></div>
                 <div id="track-list" class="track-list"></div>
-
             </div>
-
-            <!-- REGISTERS -->
-
             <div class="register-panel">
-
-                <h3>
-                    Registers
-                </h3>
-
-                <p style="font-size:12px;">
-                    These are the only registers exposed by the editor.
-                </p>
-
+                <h3>Registration</h3>
+                <div class="register-help">Register buttons add an ON event at the current playhead. They do not toggle OFF. Use Cancel Registers to clear the active register state.</div>
                 <div id="register-grid" class="register-grid"></div>
-
-                <button
-                    id="cancel-registers-btn"
-                    class="cancel-registers"
-                >
-                    CANCEL REGISTERS
-                </button>
-
-                <div
-                    id="active-registers"
-                    class="active-registers"
-                >
-                    No registers active.
-                </div>
-
+                <button id="cancel-registers" class="cancel">CANCEL REGISTERS</button>
+                <div id="active-registers" class="active-state">No registers active.</div>
             </div>
-
         </div>
 
-        <div style="margin-top:15px;">
-
-            <button
-                id="generate-btn"
-                class="btn-green"
-                style="width:100%;"
-            >
-                Generate Organ Outputs
-            </button>
-
+        <div class="events">
+            <div style="display:flex;justify-content:space-between;align-items:center"><h3>Registration Event History</h3><div class="note">Events are stored separately from source MIDI notes.</div></div>
+            <div id="event-list" class="event-list"></div>
         </div>
 
+        <div class="btns" style="margin-top:12px">
+            <button id="generate-btn" class="green">Generate Organ Outputs</button>
+            <button id="download-source-btn" class="gray">Download Edited Source MIDI</button>
+        </div>
     </div>
-
-    <!-- =========================================================
-         SUMMARY
-         ========================================================= -->
 
     <div id="summary-panel" class="panel hidden">
-
         <h2>Compilation Summary</h2>
-
-        <div class="summary">
-
-            <div class="stat">
-                <div class="stat-label">Input Tracks</div>
-                <div id="stat-tracks" class="stat-value">0</div>
-            </div>
-
-            <div class="stat">
-                <div class="stat-label">Normalized Notes</div>
-                <div id="stat-notes" class="stat-value">0</div>
-            </div>
-
-            <div class="stat">
-                <div class="stat-label">Active Registers</div>
-                <div id="stat-registers" class="stat-value">0</div>
-            </div>
-
-            <div class="stat">
-                <div class="stat-label">Roll Pages</div>
-                <div id="stat-pages" class="stat-value">0</div>
-            </div>
-
-        </div>
-
-        <div id="mapping-warning" class="warning hidden"></div>
-
+        <div class="stats"><div class="stat"><label>INPUT TRACKS</label><strong id="stat-tracks">0</strong></div><div class="stat"><label>NOTES</label><strong id="stat-notes">0</strong></div><div class="stat"><label>REGISTER EVENTS</label><strong id="stat-regs">0</strong></div><div class="stat"><label>PAPER PAGES</label><strong id="stat-pages">0</strong></div><div class="stat"><label>IGNORED NOTES</label><strong id="stat-ignored">0</strong></div></div>
+        <div id="mapping-note" class="note"></div>
     </div>
-
-    <!-- =========================================================
-         OUTPUTS
-         ========================================================= -->
 
     <div id="output-panel" class="panel hidden">
-
-        <h2>Organ Outputs</h2>
-
+        <h2>Exports</h2>
         <div class="output-grid">
-
-            <!-- STRING -->
-
-            <div class="output-box">
-
-                <h3>Organ String Data</h3>
-
-                <p style="font-size:12px;">
-                    Tracker-hole event data using delta milliseconds.
-                    Positive hole numbers are ON events and negative
-                    hole numbers are OFF events.
-                </p>
-
-                <textarea
-                    id="string-output"
-                    readonly
-                    placeholder="Organ string data will appear here..."
-                ></textarea>
-
-                <div class="output-buttons">
-
-                    <button
-                        id="copy-string-btn"
-                        class="btn-green"
-                    >
-                        Copy String
-                    </button>
-
-                    <button
-                        id="download-string-btn"
-                        class="btn-gray"
-                    >
-                        Download String
-                    </button>
-
-                </div>
-
-            </div>
-
-            <!-- GENERATED MIDI -->
-
-            <div class="output-box">
-
-                <h3>Generated Organ MIDI</h3>
-
-                <p style="font-size:12px;">
-                    New MIDI containing exactly 10 output tracks:
-                    Bass, Cello, Accompaniment, Forte, Violin, Flute,
-                    Flageolet, Bourdon, Glockenspiel, and Percussion.
-                </p>
-
-                <div class="success">
-                    Generated MIDI uses a fixed note velocity.
-                    Input velocity is ignored during parsing.
-                </div>
-
-                <div class="output-buttons">
-
-                    <button
-                        id="download-midi-btn"
-                        class="btn-green"
-                    >
-                        Download Organ MIDI
-                    </button>
-
-                </div>
-
-            </div>
-
+            <div class="output-box"><h3>Organ String Data</h3><textarea id="string-output" readonly placeholder="Generated tracker-hole string will appear here..."></textarea><div class="btns" style="margin-top:8px"><button id="copy-string" class="green">Copy String</button><button id="download-string" class="gray">Download String</button></div></div>
+            <div class="output-box"><h3>Generated Organ MIDI</h3><p class="note">Exactly 10 tracks: Bass, Cello, Accompaniment, Forte, Violin, Flute, Flageolet, Bourdon, Glockenspiel, Percussion. Input velocities are ignored; generated note velocity is fixed at 127.</p><button id="download-midi" class="green">Download Organ MIDI</button></div>
         </div>
-
     </div>
-
-    <!-- =========================================================
-         PAPER ROLL
-         ========================================================= -->
 
     <div id="roll-panel" class="panel hidden">
-
         <h2>101-Hole Paper Roll</h2>
-
-        <p>
-            1024 × 4096 production sheets. The tracker contains 101 holes.
-        </p>
-
-        <div class="output-buttons">
-
-            <button
-                id="download-images-btn"
-                class="btn-green"
-            >
-                Download All Roll Pages
-            </button>
-
-        </div>
-
-        <div
-            id="output-container"
-            class="canvas-container"
-            style="margin-top:20px;"
-        ></div>
-
+        <p style="margin-top:0">Holes 1–14 are controls/percussion. Bass = 15–32, Accompaniment = 33–64, Melody = 65–101. Roll runs top-to-bottom and is mirrored horizontally.</p>
+        <button id="download-roll" class="green">Download All Roll Pages</button>
+        <div id="roll-container" class="roll-container" style="margin-top:14px"></div>
     </div>
-
 </div>
 
-
 <script>
-
-    /* =========================================================
-       BASIC CONSTANTS
-       ========================================================= */
-
-    const CANVAS_WIDTH = 1024;
-    const CANVAS_HEIGHT = 4096;
-
-    const TRACKS_COUNT = 101;
-    const TRACK_WIDTH = 8;
-
-    const MARGIN_X =
-        (CANVAS_WIDTH - (TRACKS_COUNT * TRACK_WIDTH)) / 2;
-
-    /*
-        Existing compiler used 256 pixels per second.
-        Kept here as the paper-roll transport speed.
-    */
-    const SCROLL_SPEED_PX_PER_SEC = 256;
-
-    /*
-        The new compiler does NOT use velocity.
-
-        Every parsed note is simply:
-
-            ON  = 1
-            OFF = 0
-
-        Fixed velocity is only written to the generated MIDI because
-        a MIDI note needs a usable attack velocity.
-    */
-    const OUTPUT_VELOCITY = 1.0;
-
-    /*
-        No old player-piano 10% shortening is applied.
-
-        The organ receives the actual MIDI note duration.
-    */
-    const NOTE_DURATION_SCALE = 1.0;
-
-    /*
-        Register controls are short control holes on the paper roll.
-    */
-    const REGISTER_CONTROL_LENGTH_PX = 24;
-
-    /*
-        Percussion hits are short holes.
-    */
-    const PERCUSSION_HOLE_LENGTH_PX = 20;
-
-
-    /* =========================================================
-       TRACKER BAR DEFINITIONS
-       ========================================================= */
-
-    const ORGAN_CONTROLS = {
-
-        1: {
-            type: "REGISTER_CONTROL",
-            name: "Cancel Registers"
-        },
-
-        2: {
-            type: "REGISTER",
-            name: "Cello"
-        },
-
-        3: {
-            type: "REGISTER",
-            name: "Flute"
-        },
-
-        4: {
-            type: "REGISTER",
-            name: "Glockenspiel"
-        },
-
-        5: {
-            type: "REGISTER",
-            name: "Bourdon"
-        },
-
-        6: {
-            type: "REGISTER",
-            name: "Violin"
-        },
-
-        7: {
-            type: "REGISTER",
-            name: "Forte"
-        },
-
-        8: {
-            type: "PERCUSSION",
-            name: "Triangle"
-        },
-
-        9: {
-            type: "PERCUSSION",
-            name: "Snare Drum Right"
-        },
-
-        10: {
-            type: "PERCUSSION",
-            name: "Wood Block Right"
-        },
-
-        11: {
-            type: "PERCUSSION",
-            name: "Snare Drum Left"
-        },
-
-        12: {
-            type: "PERCUSSION",
-            name: "Wood Block Left"
-        },
-
-        13: {
-            type: "PERCUSSION",
-            name: "Cymbal"
-        },
-
-        14: {
-            type: "PERCUSSION",
-            name: "Bass Drum"
-        }
-
-    };
-
-
-    /*
-        The musical divisions of the tracker bar.
-    */
-
-    const DIVISIONS = {
-
-        BASS: {
-            name: "Bass",
-            firstHole: 15,
-            lastHole: 32,
-
-            /*
-                The tracker labels show:
-                G -> C
-
-                Default assumption:
-                G2 (MIDI 43) -> hole 15
-            */
-            firstMidi: 43
-        },
-
-        ACCOMPANIMENT: {
-            name: "Accompaniment",
-            firstHole: 33,
-            lastHole: 64,
-
-            /*
-                Default assumption:
-                C4 (MIDI 60) -> hole 33
-            */
-            firstMidi: 60
-        },
-
-        MELODY: {
-            name: "Melody",
-            firstHole: 65,
-            lastHole: 101,
-
-            /*
-                Default assumption:
-                C4 (MIDI 60) -> hole 65
-            */
-            firstMidi: 60
-        }
-
-    };
-
-
-    /* =========================================================
-       REGISTER DEFINITIONS
-       ========================================================= */
-
-    /*
-        Flageolet is included as an organ register.
-
-        IMPORTANT:
-        Your provided physical 1–14 tracker control list did not
-        specify a physical tracker-hole number for Flageolet.
-
-        Therefore it is intentionally null here instead of
-        inventing a physical hole.
-
-        The MIDI output DOES contain a Flageolet track.
-    */
-
-    const REGISTERS = {
-
-        Cello: {
-            midiTrackName: "Cello",
-            trackerHole: 2
-        },
-
-        Flute: {
-            midiTrackName: "Flute",
-            trackerHole: 3
-        },
-
-        Glockenspiel: {
-            midiTrackName: "Glockenspiel",
-            trackerHole: 4
-        },
-
-        Bourdon: {
-            midiTrackName: "Bourdon",
-            trackerHole: 5
-        },
-
-        Violin: {
-            midiTrackName: "Violin",
-            trackerHole: 6
-        },
-
-        Forte: {
-            midiTrackName: "Forte",
-            trackerHole: 7
-        },
-
-        Flageolet: {
-            midiTrackName: "Flageolet",
-
-            /*
-                Not assigned until the actual physical tracker
-                hole is specified.
-            */
-            trackerHole: null
-        }
-
-    };
-
-
-    /* =========================================================
-       GENERATED MIDI TRACK ORDER
-       ========================================================= */
-
-    const OUTPUT_MIDI_TRACKS = [
-
-        "Bass",
-        "Cello",
-        "Accompaniment",
-        "Forte",
-        "Violin",
-        "Flute",
-        "Flageolet",
-        "Bourdon",
-        "Glockenspiel",
-        "Percussion"
-
-    ];
-
-
-    /* =========================================================
-       PERCUSSION INPUT MAPPING
-       ========================================================= */
-
-    /*
-        Percussion is ONE input track.
-
-        The snare/wood-block combination is ONE input note.
-
-        Each time that note occurs, the side alternates:
-
-            RIGHT
-            LEFT
-            RIGHT
-            LEFT
-
-        Each side activates both the snare and wood block hole.
-
-        These are editable constants because the exact MIDI note
-        assignments were not specified.
-    */
-
-    const PERCUSSION_INPUT = {
-
-        /*
-            General-purpose editable defaults.
-        */
-
-        TRIANGLE: 81,
-
-        SNARE_WOODBLOCK: 38,
-
-        CYMBAL: 49,
-
-        BASS_DRUM: 36
-
-    };
-
-
-    /*
-        State for the alternating snare / wood block pattern.
-    */
-
-    let percussionSideIndex = 0;
-
-
-    /* =========================================================
-       APPLICATION STATE
-       ========================================================= */
-
-    let loadedMidi = null;
-
-    let loadedFile = null;
-
-    let editorTracks = [];
-
-    let normalizedEvents = [];
-
-    let generatedCanvases = [];
-
-    let generatedMidi = null;
-
-    let generatedString = "";
-
-    const activeRegisters = new Set();
-
-
-    /* =========================================================
-       DOM REFERENCES
-       ========================================================= */
-
-    const midiFileInput =
-        document.getElementById("midi-file");
-
-    const customTitleInput =
-        document.getElementById("custom-title");
-
-    const parseButton =
-        document.getElementById("parse-btn");
-
-    const generateButton =
-        document.getElementById("generate-btn");
-
-    const editorPanel =
-        document.getElementById("editor-panel");
-
-    const summaryPanel =
-        document.getElementById("summary-panel");
-
-    const outputPanel =
-        document.getElementById("output-panel");
-
-    const rollPanel =
-        document.getElementById("roll-panel");
-
-    const trackList =
-        document.getElementById("track-list");
-
-    const registerGrid =
-        document.getElementById("register-grid");
-
-    const activeRegistersDisplay =
-        document.getElementById("active-registers");
-
-    const stringOutput =
-        document.getElementById("string-output");
-
-    const status =
-        document.getElementById("status");
-
-    const outputContainer =
-        document.getElementById("output-container");
-
-    const mappingWarning =
-        document.getElementById("mapping-warning");
-
-
-    /* =========================================================
-       UTILITY FUNCTIONS
-       ========================================================= */
-
-    function sanitizeFilename(name) {
-
-        return String(name || "FairgroundOrgan")
-            .replace(/\.[^/.]+$/, "")
-            .replace(/[<>:"/\\|?*\x00-\x1F]/g, "")
-            .replace(/\s+/g, "_")
-            .slice(0, 150);
-
-    }
-
-
-    function clamp(value, min, max) {
-
-        return Math.max(min, Math.min(max, value));
-
-    }
-
-
-    function midiNoteName(midi) {
-
-        const names = [
-            "C",
-            "C#",
-            "D",
-            "D#",
-            "E",
-            "F",
-            "F#",
-            "G",
-            "G#",
-            "A",
-            "A#",
-            "B"
-        ];
-
-        const octave =
-            Math.floor(midi / 12) - 1;
-
-        return `${names[midi % 12]}${octave}`;
-
-    }
-
-
-    function escapeHtml(value) {
-
-        return String(value)
-            .replace(/&/g, "&amp;")
-            .replace(/</g, "&lt;")
-            .replace(/>/g, "&gt;")
-            .replace(/"/g, "&quot;")
-            .replace(/'/g, "&#039;");
-
-    }
-
-
-    /* =========================================================
-       TRACK ROLE AUTO-DETECTION
-       ========================================================= */
-
-    function detectTrackRole(track) {
-
-        const name =
-            String(track.name || "").toLowerCase();
-
-        const isPercussion =
-            track.channel === 9 ||
-            track.instrument?.percussion === true;
-
-        if (isPercussion) {
-            return "PERCUSSION";
-        }
-
-        if (
-            name.includes("bass")
-        ) {
-            return "BASS";
-        }
-
-        if (
-            name.includes("accompaniment") ||
-            name.includes("accompan") ||
-            name.includes("accomp")
-        ) {
-            return "ACCOMPANIMENT";
-        }
-
-        if (
-            name.includes("melody") ||
-            name.includes("mel")
-        ) {
-            return "MELODY";
-        }
-
-        return "IGNORE";
-
-    }
-
-
-    /* =========================================================
-       REGISTER UI
-       ========================================================= */
-
-    function buildRegisterUI() {
-
-        registerGrid.innerHTML = "";
-
-        Object.keys(REGISTERS).forEach(registerName => {
-
-            const button =
-                document.createElement("button");
-
-            button.className =
-                "register-button";
-
-            button.dataset.register =
-                registerName;
-
-            button.textContent =
-                registerName;
-
-            button.addEventListener("click", () => {
-
-                /*
-                    REGISTER BUTTONS DO NOT TOGGLE OFF.
-
-                    Clicking a register simply makes it active.
-
-                    To clear registers, use Cancel Registers.
-                */
-
-                activeRegisters.add(registerName);
-
-                updateRegisterUI();
-
-            });
-
-            registerGrid.appendChild(button);
-
-        });
-
-        updateRegisterUI();
-
-    }
-
-
-    function updateRegisterUI() {
-
-        document
-            .querySelectorAll(".register-button")
-            .forEach(button => {
-
-                const registerName =
-                    button.dataset.register;
-
-                button.classList.toggle(
-                    "active",
-                    activeRegisters.has(registerName)
-                );
-
-            });
-
-
-        if (activeRegisters.size === 0) {
-
-            activeRegistersDisplay.textContent =
-                "No registers active.";
-
-            return;
-
-        }
-
-
-        activeRegistersDisplay.textContent =
-            "Active: " +
-            Array.from(activeRegisters).join(", ");
-
-    }
-
-
-    document
-        .getElementById("cancel-registers-btn")
-        .addEventListener("click", () => {
-
-            activeRegisters.clear();
-
-            updateRegisterUI();
-
-            status.textContent =
-                "All registers cancelled.";
-
-        });
-
-
-    /* =========================================================
-       MIDI FILE SELECTION
-       ========================================================= */
-
-    midiFileInput.addEventListener("change", () => {
-
-        if (!midiFileInput.files.length) {
-
-            parseButton.disabled = true;
-
-            return;
-
-        }
-
-        loadedFile =
-            midiFileInput.files[0];
-
-
-        if (!customTitleInput.value.trim()) {
-
-            customTitleInput.value =
-                sanitizeFilename(loadedFile.name);
-
-        }
-
-
-        parseButton.disabled = false;
-
-        status.textContent =
-            `Selected: ${loadedFile.name}`;
-
+/* ============================================================
+   FAIRGROUND ORGAN COMPILER V3
+   - Source MIDI: Ch1 Bass, Ch2 Accompaniment, Ch3 Melody, Ch10 Percussion.
+   - Output MIDI: Ch1 Bass, Ch2 Cello, Ch3 Accompaniment, Ch4 Forte,
+     Ch5 Violin, Ch6 Flute, Ch7 Flageolet, Ch8 Bourdon,
+     Ch9 Glockenspiel, Ch10 Percussion.
+   - Velocity is ignored for organ logic.
+   ============================================================ */
+
+const CANVAS_WIDTH = 1024;
+const CANVAS_HEIGHT = 4096;
+const TRACK_COUNT = 101;
+const TRACK_WIDTH = 8;
+const MARGIN_X = (CANVAS_WIDTH - TRACK_COUNT * TRACK_WIDTH) / 2;
+const ROLL_SPEED = 256;
+const REGISTER_PULSE_MS = 80;
+const PERCUSSION_PULSE_MS = 80;
+const FIXED_VELOCITY = 127;
+
+const SOURCE_CHANNEL_ROLES = {0:'BASS',1:'ACCOMPANIMENT',2:'MELODY',9:'PERCUSSION'};
+const OUTPUT_TRACKS = ['Bass','Cello','Accompaniment','Forte','Violin','Flute','Flageolet','Bourdon','Glockenspiel','Percussion'];
+const REGISTER_NAMES = ['Cello','Flute','Glockenspiel','Bourdon','Violin','Flageolet','Forte'];
+const REGISTER_TRACK_TO_NAME = {'Cello':'Cello','Forte':'Forte','Violin':'Violin','Flute':'Flute','Flageolet':'Flageolet','Bourdon':'Bourdon','Glockenspiel':'Glockenspiel'};
+const OUTPUT_INDEX_BY_NAME = Object.fromEntries(OUTPUT_TRACKS.map((x,i)=>[x,i]));
+
+const DIVISIONS = {
+  BASS:{firstHole:15,lastHole:32,firstMidi:31,lastMidi:48},
+  ACCOMPANIMENT:{firstHole:33,lastHole:64,firstMidi:48,lastMidi:79},
+  MELODY:{firstHole:65,lastHole:101,firstMidi:60,lastMidi:96}
+};
+
+const PHYSICAL_CONTROLS = {
+  1:'Cancel Registers',
+  2:'Cello',
+  3:'Flute',
+  4:'Glockenspiel',
+  5:'Bourdon',
+  6:'Violin',
+  7:'Forte',
+  8:'Triangle',
+  9:'Snare Right',
+  10:'Wood Block Right',
+  11:'Snare Left',
+  12:'Wood Block Left',
+  13:'Cymbal',
+  14:'Bass Drum'
+};
+
+/* Flageolet has an editor/output track, but the supplied physical 1–14
+   tracker list does not provide a Flageolet control hole. We therefore
+   never invent a hole number for it. */
+const REGISTER_TRACKER_HOLES = {Cello:2,Flute:3,Glockenspiel:4,Bourdon:5,Violin:6,Forte:7,Flageolet:null};
+
+/* Source percussion notes observed in the supplied test MIDI:
+   34/35 = bass drum family, 38 = alternating snare+wood block hit,
+   49 = cymbal, 76 = wood block, 81 = triangle. */
+const PERCUSSION_INPUT = {BASS_A:34,BASS_B:35,SNARE_WOODBLOCK:38,CYMBAL:49,WOODBLOCK:76,TRIANGLE:81};
+
+let midi = null;
+let originalMidiBytes = null;
+let sourceMode = 'SOURCE';
+let tracks = [];
+let registrationEvents = [];
+let undoStack = [];
+let redoStack = [];
+let cursorSec = 0;
+let durationSec = 0;
+let timelineZoom = 70;
+let playing = false;
+let playWallStart = 0;
+let playCursorStart = 0;
+let audioCtx = null;
+let scheduledAudio = [];
+let generatedMidi = null;
+let generatedString = '';
+let canvases = [];
+let alternatingSide = 0;
+
+const $ = id => document.getElementById(id);
+
+function fmt(sec){
+  sec = Math.max(0, Number(sec)||0);
+  const m = Math.floor(sec/60); const s = sec-m*60;
+  return `${String(m).padStart(2,'0')}:${s.toFixed(2).padStart(5,'0')}`;
+}
+function safeName(name){return String(name||'FairgroundOrgan').replace(/\.[^/.]+$/,'').replace(/[<>:"/\\|?*\x00-\x1F]/g,'').replace(/\s+/g,'_').slice(0,150)||'FairgroundOrgan';}
+function cloneRegs(){return registrationEvents.map(e=>({...e}));}
+function commitEdit(mutator){
+  undoStack.push(cloneRegs());
+  redoStack=[];
+  mutator();
+  sortRegs(); renderRegisters(); renderTimeline(); updateHistoryButtons();
+}
+function undo(){if(!undoStack.length)return;redoStack.push(cloneRegs());registrationEvents=undoStack.pop();renderRegisters();renderTimeline();updateHistoryButtons();}
+function redo(){if(!redoStack.length)return;undoStack.push(cloneRegs());registrationEvents=redoStack.pop();renderRegisters();renderTimeline();updateHistoryButtons();}
+function updateHistoryButtons(){$('undo-btn').disabled=!undoStack.length;$('redo-btn').disabled=!redoStack.length;}
+function sortRegs(){registrationEvents.sort((a,b)=>a.time-b.time || a.id-b.id);}
+function nextId(){return registrationEvents.reduce((m,e)=>Math.max(m,e.id||0),0)+1;}
+
+function registerStateAt(time){
+  const active=new Set();
+  sortRegs();
+  for(const e of registrationEvents){
+    if(e.time>time)break;
+    if(e.type==='CANCEL') active.clear();
+    else if(e.type==='REGISTER') active.add(e.name);
+  }
+  return active;
+}
+function addRegister(name){
+  const now=Number(cursorSec.toFixed(3));
+  const state=registerStateAt(now);
+  if(state.has(name)){
+    setStatus(`${name} is already active at ${fmt(now)}. Use Cancel Registers before adding it again.`);
+    return;
+  }
+  commitEdit(()=>registrationEvents.push({id:nextId(),time:now,type:'REGISTER',name}));
+  setStatus(`${name} ON at ${fmt(now)}.`);
+}
+function addCancel(){
+  const now=Number(cursorSec.toFixed(3));
+  commitEdit(()=>registrationEvents.push({id:nextId(),time:now,type:'CANCEL'}));
+  setStatus(`Cancel Registers at ${fmt(now)}.`);
+}
+function deleteRegistration(id){
+  commitEdit(()=>registrationEvents=registrationEvents.filter(e=>e.id!==id));
+  setStatus('Registration event removed.');
+}
+function renderRegisters(){
+  $('register-grid').innerHTML='';
+  REGISTER_NAMES.forEach(name=>{
+    const b=document.createElement('button'); b.className='register-btn'; b.textContent=name; b.dataset.name=name;
+    b.onclick=()=>addRegister(name); $('register-grid').appendChild(b);
+  });
+  document.querySelectorAll('.register-btn').forEach(b=>{
+    const state=registerStateAt(cursorSec); b.classList.toggle('active',state.has(b.dataset.name));
+  });
+  const state=Array.from(registerStateAt(cursorSec));
+  $('active-registers').textContent=state.length?`Active: ${state.join(', ')}`:'No registers active.';
+  $('event-list').innerHTML='';
+  if(!registrationEvents.length){$('event-list').innerHTML='<div class="note">No registration events yet.</div>';return;}
+  registrationEvents.forEach(e=>{
+    const row=document.createElement('div'); row.className='event-row';
+    const label=e.type==='CANCEL'?'Cancel Registers':`${e.name} ON`;
+    const cls=e.type==='CANCEL'?'event-cancel':(e.name==='Flageolet'?'event-flageolet':'event-add');
+    row.innerHTML=`<div class="event-time">${fmt(e.time)}</div><div class="${cls}">${label}</div><button class="red" style="padding:5px 8px">Remove</button>`;
+    row.querySelector('button').onclick=()=>deleteRegistration(e.id); $('event-list').appendChild(row);
+  });
+}
+
+function setStatus(msg){$('status').textContent=msg;}
+
+function detectFormat(parsed){
+  const names=new Set(parsed.tracks.map(t=>String(t.name||'').trim().toLowerCase()));
+  const organHits=OUTPUT_TRACKS.filter(n=>names.has(n.toLowerCase())).length;
+  if(organHits>=5) return 'ORGAN_OUTPUT';
+  return 'SOURCE';
+}
+
+function roleForTrack(track,index){
+  if(sourceMode==='SOURCE') return SOURCE_CHANNEL_ROLES[Number(track.channel)] || 'IGNORE';
+  const name=String(track.name||'').trim();
+  const match=OUTPUT_TRACKS.find(x=>x.toLowerCase()===name.toLowerCase());
+  if(match==='Bass')return 'BASS';
+  if(match==='Accompaniment')return 'ACCOMPANIMENT';
+  if(match==='Percussion')return 'PERCUSSION';
+  if(REGISTER_NAMES.includes(match))return 'REGISTER_OUTPUT';
+  return 'IGNORE';
+}
+function trackLabel(role){return ({BASS:'Bass',ACCOMPANIMENT:'Accompaniment',MELODY:'Melody',PERCUSSION:'Percussion',REGISTER_OUTPUT:'Register Output',IGNORE:'Ignore'})[role]||role;}
+
+function openMidiEditor(){
+  if(!$('midi-file').files.length)return;
+  try{
+    const file=$('midi-file').files[0];
+    originalMidiBytes=null;
+    file.arrayBuffer().then(buf=>{
+      originalMidiBytes=buf.slice(0);
+      midi=new Midi(buf);
+      sourceMode=detectFormat(midi);
+      tracks=midi.tracks.map((t,index)=>({index,name:t.name||`Track ${index+1}`,channel:Number.isFinite(t.channel)?t.channel:0,notes:t.notes||[],enabled:true,role:roleForTrack(t,index)}));
+      durationSec=Math.max(0.1,Number(midi.duration)||Math.max(...tracks.flatMap(t=>t.notes.map(n=>n.time+n.duration)),0));
+      cursorSec=0; registrationEvents=[]; undoStack=[]; redoStack=[]; renderAll();
+      $('editor-panel').classList.remove('hidden'); $('summary-panel').classList.add('hidden'); $('output-panel').classList.add('hidden'); $('roll-panel').classList.add('hidden');
+      $('mode-badge').textContent=sourceMode==='SOURCE'?'Source MIDI':'Organ Output MIDI'; $('mode-badge').classList.add(sourceMode==='SOURCE'?'source':'output');
+      $('format-badge').innerHTML=`<span class="badge ${sourceMode==='SOURCE'?'source':'output'}">Detected: ${sourceMode==='SOURCE'?'SOURCE MIDI':'ORGAN-OUTPUT MIDI'}</span>`;
+      $('time-slider').max=durationSec; $('time-slider').value=0; $('time-slider').disabled=false;
+      setStatus(`Loaded ${file.name}: ${tracks.length} tracks, ${countNotes()} notes, ${fmt(durationSec)} duration.`);
     });
+  }catch(err){console.error(err);setStatus(`MIDI load failed: ${err.message}`);}
+}
+function countNotes(){return tracks.reduce((s,t)=>s+t.notes.length,0);}
 
+function renderTracks(){
+  $('track-list').innerHTML='';
+  tracks.forEach((t,i)=>{
+    const row=document.createElement('div'); row.className='track-row'+(t.enabled?'':' off');
+    const sel=document.createElement('select'); sel.className='role-select';
+    [['BASS','Bass'],['ACCOMPANIMENT','Accompaniment'],['MELODY','Melody'],['PERCUSSION','Percussion'],['REGISTER_OUTPUT','Register Output'],['IGNORE','Ignore']].forEach(([v,l])=>{const o=document.createElement('option');o.value=v;o.textContent=l;o.selected=t.role===v;sel.appendChild(o);});
+    sel.onchange=()=>{t.role=sel.value;renderTimeline();};
+    const cb=document.createElement('input'); cb.type='checkbox'; cb.className='track-enable'; cb.checked=t.enabled; cb.onchange=()=>{t.enabled=cb.checked;row.classList.toggle('off',!t.enabled);renderTimeline();};
+    row.innerHTML=`<div class="track-num">${i+1}</div><div></div><div><div class="track-name">${escapeHtml(t.name)}</div><div class="track-info">Channel ${t.channel+1} • ${t.notes.length} notes</div></div><div></div><div></div>`;
+    row.children[1].replaceWith(cb); row.children[3].replaceWith(sel);
+    row.children[4].innerHTML=`<span class="badge">${trackLabel(t.role)}</span>`;
+    $('track-list').appendChild(row);
+  });
+}
+function escapeHtml(v){return String(v).replace(/[&<>"']/g,s=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));}
 
-    /* =========================================================
-       PARSE MIDI
-       ========================================================= */
+function timelineLanes(){
+  if(sourceMode==='SOURCE') return tracks.length;
+  return Math.max(tracks.length,10);
+}
+function renderTimeline(){
+  if(!midi)return;
+  const laneH=42, labelW=145, width=Math.max(1400,Math.ceil(durationSec*timelineZoom));
+  const height=laneH*timelineLanes(); const canvas=$('timeline-canvas'); canvas.width=labelW+width; canvas.height=height; canvas.style.width=(labelW+width)+'px'; canvas.style.height=height+'px';
+  const ctx=canvas.getContext('2d'); ctx.clearRect(0,0,canvas.width,canvas.height); ctx.fillStyle='#0e0e0e';ctx.fillRect(0,0,canvas.width,canvas.height);
+  // time grid
+  const pxPerSec=timelineZoom;
+  ctx.font='11px sans-serif';
+  for(let sec=0;sec<=durationSec+0.001;sec+=1){const x=labelW+sec*pxPerSec;ctx.strokeStyle=sec%5===0?'#454545':'#292929';ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,height);ctx.stroke();if(sec%5===0){ctx.fillStyle='#777';ctx.fillText(fmt(sec),x+3,12);}}
+  tracks.slice(0,timelineLanes()).forEach((t,i)=>{
+    const y=i*laneH; ctx.strokeStyle='#2a2a2a';ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(canvas.width,y);ctx.stroke();ctx.fillStyle=t.enabled?'#ddd':'#666';ctx.fillText(`${i+1}. ${t.name||'Track'}`,8,y+26);ctx.fillStyle='#666';ctx.font='10px sans-serif';ctx.fillText(`Ch ${t.channel+1} • ${trackLabel(t.role)}`,8,y+38);ctx.font='11px sans-serif';
+    if(!t.enabled)return;
+    t.notes.forEach(n=>{const x=labelW+n.time*pxPerSec;const w=Math.max(2,n.duration*pxPerSec); if(x+w<labelW||x>canvas.width)return; let fill='#4aa3ff';if(t.role==='BASS')fill='#db5962';else if(t.role==='ACCOMPANIMENT')fill='#55bd72';else if(t.role==='PERCUSSION')fill='#e8a044';else if(t.role==='REGISTER_OUTPUT')fill='#b37be8';ctx.fillStyle=fill;ctx.fillRect(x,y+15,Math.max(1,w),10);});
+  });
+  // registration markers
+  registrationEvents.forEach(e=>{const x=labelW+e.time*pxPerSec;ctx.strokeStyle=e.type==='CANCEL'?'#ff6565':'#b57bff';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,height);ctx.stroke();});
+  // playhead
+  const px=labelW+cursorSec*pxPerSec;ctx.strokeStyle='#36a7ff';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(px,0);ctx.lineTo(px,height);ctx.stroke();
+}
 
-    parseButton.addEventListener("click", async () => {
+function seek(sec){cursorSec=clamp(sec,0,durationSec);$('time-slider').value=cursorSec;updateCursorUI();renderRegisters();renderTimeline();if(playing)restartPlaybackAtCursor();}
+function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
+function updateCursorUI(){$('cursor-time').textContent=fmt(cursorSec);$('slider-time').value=fmt(cursorSec);}
 
-        try {
+$('time-slider').addEventListener('input',e=>seek(Number(e.target.value)));
+$('timeline-canvas').addEventListener('pointerdown',e=>{const r=e.currentTarget.getBoundingClientRect();const x=e.clientX-r.left-145;seek(x/timelineZoom);});
 
-            if (!loadedFile) {
+function midiNotesForPreview(){
+  const out=[];
+  if(sourceMode==='ORGAN_OUTPUT'){
+    tracks.forEach(t=>{if(!t.enabled)return;const outputName=OUTPUT_TRACKS.find(n=>n.toLowerCase()===t.name.toLowerCase());if(!outputName)return;for(const n of t.notes){out.push({time:n.time,duration:n.duration,midi:n.midi,kind:outputName,percussion:outputName==='Percussion'});}});
+    return out;
+  }
+  tracks.forEach(t=>{
+    if(!t.enabled)return;
+    if(t.role==='BASS') t.notes.forEach(n=>out.push({time:n.time,duration:n.duration,midi:n.midi,kind:'Bass'}));
+    else if(t.role==='ACCOMPANIMENT') t.notes.forEach(n=>out.push({time:n.time,duration:n.duration,midi:n.midi,kind:'Accompaniment'}));
+    else if(t.role==='PERCUSSION') t.notes.forEach(n=>out.push({time:n.time,duration:n.duration,midi:n.midi,kind:'Percussion',percussion:true}));
+    else if(t.role==='MELODY'){
+      t.notes.forEach(n=>{
+        const state=registerStateAt(n.time);
+        state.forEach(reg=>out.push({time:n.time,duration:n.duration,midi:n.midi,kind:reg}));
+      });
+    }
+  });
+  return out;
+}
 
-                alert("Please select a MIDI file.");
+function stopAllAudio(){
+  scheduledAudio.forEach(x=>{try{x.stop?.()}catch{}try{x.disconnect?.()}catch{}});scheduledAudio=[];
+}
+function ensureAudio(){if(!audioCtx)audioCtx=new (window.AudioContext||window.webkitAudioContext)();if(audioCtx.state==='suspended')audioCtx.resume();}
+function toneConfig(kind){
+  const configs={
+    Bass:{type:'triangle',gain:.16,mult:0.5},Accompaniment:{type:'square',gain:.07,mult:1},
+    Cello:{type:'sawtooth',gain:.08,mult:1},Violin:{type:'sawtooth',gain:.065,mult:1},Flute:{type:'sine',gain:.10,mult:1},
+    Flageolet:{type:'sine',gain:.08,mult:2},Bourdon:{type:'triangle',gain:.09,mult:.5},Glockenspiel:{type:'sine',gain:.08,mult:2},Forte:{type:'square',gain:.06,mult:1}
+  };return configs[kind]||configs.Accompaniment;
+}
+function midiFreq(n){return 440*Math.pow(2,(n-69)/12);}
+function scheduleTone(note,when,kind,remainingDuration){
+  const c=toneConfig(kind);const osc=audioCtx.createOscillator();const gain=audioCtx.createGain();
+  const f=midiFreq(note.midi)*c.mult;osc.type=c.type;osc.frequency.setValueAtTime(f,when);
+  gain.gain.setValueAtTime(0.0001,when);gain.gain.linearRampToValueAtTime(c.gain,when+0.015);gain.gain.setTargetAtTime(c.gain*0.55,when+0.05,0.07);gain.gain.setTargetAtTime(0.0001,Math.max(when+0.03,when+remainingDuration-0.05),0.05);
+  osc.connect(gain);gain.connect(audioCtx.destination);osc.start(when);osc.stop(when+Math.max(0.06,remainingDuration));scheduledAudio.push(osc,gain);
+}
+function scheduleNoise(when,duration,gainAmount=.12,filterFreq=1800){
+  const buffer=audioCtx.createBuffer(1,Math.ceil(audioCtx.sampleRate*Math.min(1,duration)),audioCtx.sampleRate);const data=buffer.getChannelData(0);for(let i=0;i<data.length;i++)data[i]=Math.random()*2-1;
+  const src=audioCtx.createBufferSource();const g=audioCtx.createGain();const f=audioCtx.createBiquadFilter();f.type='bandpass';f.frequency.value=filterFreq;f.Q.value=.7;
+  g.gain.setValueAtTime(gainAmount,when);g.gain.exponentialRampToValueAtTime(.0001,when+duration);src.buffer=buffer;src.connect(f);f.connect(g);g.connect(audioCtx.destination);src.start(when);src.stop(when+duration+.01);scheduledAudio.push(src,g,f);
+}
+function schedulePerc(note,when,duration){
+  const n=note.midi;
+  if(n===34||n===35||n===36){
+    const o=audioCtx.createOscillator(),g=audioCtx.createGain();o.type='sine';o.frequency.setValueAtTime(105,when);o.frequency.exponentialRampToValueAtTime(45,when+.11);g.gain.setValueAtTime(.28,when);g.gain.exponentialRampToValueAtTime(.0001,when+Math.max(.18,duration));o.connect(g);g.connect(audioCtx.destination);o.start(when);o.stop(when+Math.max(.2,duration));scheduledAudio.push(o,g);
+  }else if(n===38){scheduleNoise(when,Math.min(.14,Math.max(.07,duration)),.14,2400);}
+  else if(n===49){scheduleNoise(when,Math.min(.35,Math.max(.18,duration)),.12,5200);}
+  else if(n===76){const o=audioCtx.createOscillator(),g=audioCtx.createGain();o.type='square';o.frequency.value=580;g.gain.setValueAtTime(.12,when);g.gain.exponentialRampToValueAtTime(.0001,when+.10);o.connect(g);g.connect(audioCtx.destination);o.start(when);o.stop(when+.11);scheduledAudio.push(o,g);}
+  else if(n===81){const o=audioCtx.createOscillator(),g=audioCtx.createGain();o.type='triangle';o.frequency.value=1250;g.gain.setValueAtTime(.11,when);g.gain.exponentialRampToValueAtTime(.0001,when+.16);o.connect(g);g.connect(audioCtx.destination);o.start(when);o.stop(when+.17);scheduledAudio.push(o,g);}
+}
+function startPlayback(){
+  if(playing)return; if(!midi)return; ensureAudio(); stopAllAudio();playing=true;playWallStart=performance.now();playCursorStart=cursorSec;updatePlayButtons();
+  const start=cursorSec;const now=audioCtx.currentTime+.05;
+  midiNotesForPreview().forEach(n=>{
+    const end=n.time+n.duration;if(end<start)return;const noteStart=Math.max(n.time,start);const d=end-noteStart;const when=now+(noteStart-start);if(d<=0)return;if(n.percussion)schedulePerc(n,when,d);else scheduleTone(n,when,n.kind,d);
+  });
+  requestAnimationFrame(playLoop);
+}
+function playLoop(){if(!playing)return;const elapsed=(performance.now()-playWallStart)/1000;cursorSec=playCursorStart+elapsed;if(cursorSec>=durationSec){cursorSec=durationSec;playing=false;stopAllAudio();updatePlayButtons();updateCursorUI();renderRegisters();renderTimeline();return;}updateCursorUI();renderRegisters();renderTimeline();requestAnimationFrame(playLoop);}
+function pausePlayback(){if(!playing)return;const elapsed=(performance.now()-playWallStart)/1000;cursorSec=clamp(playCursorStart+elapsed,0,durationSec);playing=false;stopAllAudio();updatePlayButtons();updateCursorUI();renderRegisters();renderTimeline();}
+function restartPlaybackAtCursor(){if(!playing)return;playing=false;stopAllAudio();startPlayback();}
+function stopPlayback(){playing=false;stopAllAudio();cursorSec=0;updatePlayButtons();updateCursorUI();renderRegisters();renderTimeline();}
+function updatePlayButtons(){$('play-btn').disabled=playing;$('pause-btn').disabled=!playing;$('stop-btn').disabled=!playing;}
 
-                return;
-
-            }
-
-
-            status.textContent =
-                "Reading MIDI file...";
-
-
-            const arrayBuffer =
-                await loadedFile.arrayBuffer();
-
-
-            /*
-                @tonejs/midi parses the MIDI file.
-            */
-
-            loadedMidi =
-                new Midi(arrayBuffer);
-
-
-            /*
-                Build the editor representation.
-
-                Velocity is deliberately NOT copied into our
-                normalized representation.
-            */
-
-            editorTracks =
-                loadedMidi.tracks.map((track, index) => {
-
-                    return {
-
-                        index,
-
-                        name:
-                            track.name ||
-                            `Track ${index + 1}`,
-
-                        channel:
-                            Number.isFinite(track.channel)
-                                ? track.channel
-                                : 0,
-
-                        instrument:
-                            track.instrument?.name ||
-                            "Unknown",
-
-                        notes:
-                            track.notes || [],
-
-                        enabled: true,
-
-                        role:
-                            detectTrackRole(track)
-
-                    };
-
-                });
-
-
-            buildTrackEditor();
-
-
-            editorPanel.classList.remove(
-                "hidden"
-            );
-
-
-            summaryPanel.classList.add(
-                "hidden"
-            );
-
-            outputPanel.classList.add(
-                "hidden"
-            );
-
-            rollPanel.classList.add(
-                "hidden"
-            );
-
-
-            status.textContent =
-                `Loaded "${loadedFile.name}" — ${editorTracks.length} MIDI tracks found.`;
-
-
-        } catch (error) {
-
-            console.error(error);
-
-            status.textContent =
-                "MIDI parsing failed: " +
-                error.message;
-
-            alert(
-                "Could not read this MIDI file.\n\n" +
-                error.message
-            );
-
-        }
-
+/* ============================================================
+   PHYSICAL ORGAN EVENT COMPILATION
+   ============================================================ */
+function trackerForMidi(midiNote,division){const d=DIVISIONS[division];if(!d||midiNote<d.firstMidi||midiNote>d.lastMidi)return null;return d.firstHole+(midiNote-d.firstMidi);}
+function percussionHoles(midiNote){
+  if(midiNote===PERCUSSION_INPUT.BASS_A||midiNote===PERCUSSION_INPUT.BASS_B)return [14];
+  if(midiNote===PERCUSSION_INPUT.SNARE_WOODBLOCK){const holes=alternatingSide===0?[9,10]:[11,12];alternatingSide=1-alternatingSide;return holes;}
+  if(midiNote===PERCUSSION_INPUT.CYMBAL)return [13];
+  if(midiNote===PERCUSSION_INPUT.WOODBLOCK){const hole=alternatingSide===0?10:12;alternatingSide=1-alternatingSide;return [hole];}
+  if(midiNote===PERCUSSION_INPUT.TRIANGLE)return [8];
+  return [];
+}
+function physicalEvents(){
+  const spans=[];let ignored=0;alternatingSide=0;
+  // Registration punches first, independent of notes.
+  registrationEvents.forEach(e=>{
+    if(e.type==='CANCEL') spans.push({hole:1,start:e.time,end:e.time+REGISTER_PULSE_MS/1000,type:'REGISTER'});
+    else {const h=REGISTER_TRACKER_HOLES[e.name];if(h!==null&&h!==undefined)spans.push({hole:h,start:e.time,end:e.time+REGISTER_PULSE_MS/1000,type:'REGISTER'});}
+  });
+  if(sourceMode==='SOURCE'){
+    tracks.forEach(t=>{
+      if(!t.enabled)return;
+      if(t.role==='BASS'||t.role==='ACCOMPANIMENT'||t.role==='MELODY'){
+        const div=t.role;
+        t.notes.forEach(n=>{const h=trackerForMidi(n.midi,div);if(h===null){ignored++;return;}spans.push({hole:h,start:n.time,end:n.time+n.duration,type:'NOTE'});});
+      }else if(t.role==='PERCUSSION'){
+        t.notes.forEach(n=>{const holes=percussionHoles(n.midi);if(!holes.length){ignored++;return;}holes.forEach(h=>spans.push({hole:h,start:n.time,end:n.time+PERCUSSION_PULSE_MS/1000,type:'PERCUSSION'}));});
+      }
     });
-
-
-    /* =========================================================
-       TRACK EDITOR
-       ========================================================= */
-
-    function buildTrackEditor() {
-
-        trackList.innerHTML = "";
-
-        editorTracks.forEach(track => {
-
-            const row =
-                document.createElement("div");
-
-            row.className =
-                "track-row";
-
-            if (!track.enabled) {
-
-                row.classList.add("disabled");
-
-            }
-
-
-            const checkbox =
-                document.createElement("input");
-
-            checkbox.type =
-                "checkbox";
-
-            checkbox.className =
-                "track-enable";
-
-            checkbox.checked =
-                track.enabled;
-
-            checkbox.title =
-                "Enable / disable MIDI track";
-
-
-            checkbox.addEventListener(
-                "change",
-                () => {
-
-                    track.enabled =
-                        checkbox.checked;
-
-                    row.classList.toggle(
-                        "disabled",
-                        !track.enabled
-                    );
-
-                }
-            );
-
-
-            const main =
-                document.createElement("div");
-
-            main.className =
-                "track-main";
-
-
-            const trackName =
-                document.createElement("div");
-
-            trackName.className =
-                "track-name";
-
-            trackName.textContent =
-                track.name;
-
-
-            const info =
-                document.createElement("div");
-
-            info.className =
-                "track-info";
-
-            info.textContent =
-                `Channel ${track.channel + 1} • ` +
-                `${track.notes.length} notes • ` +
-                `${track.instrument}`;
-
-
-            main.appendChild(trackName);
-
-            main.appendChild(info);
-
-
-            const roleSelect =
-                document.createElement("select");
-
-            roleSelect.className =
-                "track-role";
-
-
-            const roles = [
-
-                ["IGNORE", "Ignore"],
-                ["BASS", "Bass"],
-                ["ACCOMPANIMENT", "Accompaniment"],
-                ["MELODY", "Melody"],
-                ["PERCUSSION", "Percussion"]
-
-            ];
-
-
-            roles.forEach(
-                ([value, label]) => {
-
-                    const option =
-                        document.createElement("option");
-
-                    option.value =
-                        value;
-
-                    option.textContent =
-                        label;
-
-                    if (
-                        track.role === value
-                    ) {
-
-                        option.selected = true;
-
-                    }
-
-                    roleSelect.appendChild(
-                        option
-                    );
-
-                }
-            );
-
-
-            roleSelect.addEventListener(
-                "change",
-                () => {
-
-                    track.role =
-                        roleSelect.value;
-
-                }
-            );
-
-
-            const number =
-                document.createElement("div");
-
-            number.className =
-                "track-number";
-
-            number.textContent =
-                track.index + 1;
-
-
-            row.appendChild(number);
-
-            row.appendChild(main);
-
-            row.appendChild(roleSelect);
-
-            row.appendChild(checkbox);
-
-
-            trackList.appendChild(row);
-
-        });
-
-    }
-
-
-    /* =========================================================
-       ENABLE / DISABLE ALL
-       ========================================================= */
-
-    document
-        .getElementById("enable-all-btn")
-        .addEventListener("click", () => {
-
-            editorTracks.forEach(
-                track => track.enabled = true
-            );
-
-            buildTrackEditor();
-
-        });
-
-
-    document
-        .getElementById("disable-all-btn")
-        .addEventListener("click", () => {
-
-            editorTracks.forEach(
-                track => track.enabled = false
-            );
-
-            buildTrackEditor();
-
-        });
-
-
-    /* =========================================================
-       TRACKER NOTE MAPPING
-       ========================================================= */
-
-    function getTrackerHoleFromNote(
-        midiNote,
-        division
-    ) {
-
-        const config =
-            DIVISIONS[division];
-
-        if (!config) {
-
-            return null;
-
-        }
-
-
-        const hole =
-            config.firstHole +
-            (midiNote - config.firstMidi);
-
-
-        if (
-            hole < config.firstHole ||
-            hole > config.lastHole
-        ) {
-
-            return null;
-
-        }
-
-
-        return hole;
-
-    }
-
-
-    /* =========================================================
-       PERCUSSION MAPPING
-       ========================================================= */
-
-    function getPercussionHoles(midiNote) {
-
-        /*
-            One input note for snare + wood block.
-
-            The SIDE alternates:
-
-            RIGHT -> LEFT -> RIGHT -> LEFT
-
-            Right side:
-                9 = Snare Right
-                10 = Wood Block Right
-
-            Left side:
-                11 = Snare Left
-                12 = Wood Block Left
-        */
-
-
-        if (
-            midiNote ===
-            PERCUSSION_INPUT.SNARE_WOODBLOCK
-        ) {
-
-            const holes =
-                percussionSideIndex % 2 === 0
-
-                    ? [9, 10]
-
-                    : [11, 12];
-
-
-            percussionSideIndex++;
-
-            return holes;
-
-        }
-
-
-        if (
-            midiNote ===
-            PERCUSSION_INPUT.TRIANGLE
-        ) {
-
-            return [8];
-
-        }
-
-
-        if (
-            midiNote ===
-            PERCUSSION_INPUT.CYMBAL
-        ) {
-
-            return [13];
-
-        }
-
-
-        if (
-            midiNote ===
-            PERCUSSION_INPUT.BASS_DRUM
-        ) {
-
-            return [14];
-
-        }
-
-
-        return [];
-
-    }
-
-
-    /* =========================================================
-       NORMALIZED EVENT CREATION
-       ========================================================= */
-
-    function buildNormalizedEvents() {
-
-        normalizedEvents = [];
-
-        percussionSideIndex = 0;
-
-
-        editorTracks.forEach(track => {
-
-            if (!track.enabled) {
-
-                return;
-
-            }
-
-
-            if (
-                track.role === "IGNORE"
-            ) {
-
-                return;
-
-            }
-
-
-            track.notes.forEach(note => {
-
-                /*
-                    Velocity is intentionally ignored.
-
-                    We only copy:
-                        time
-                        duration
-                        MIDI note
-                        source track
-                        source channel
-                        division
-                */
-
-                const startTime =
-                    Math.max(
-                        0,
-                        Number(note.time) || 0
-                    );
-
-
-                const duration =
-                    Math.max(
-                        0,
-                        (Number(note.duration) || 0) *
-                        NOTE_DURATION_SCALE
-                    );
-
-
-                if (duration <= 0) {
-
-                    return;
-
-                }
-
-
-                if (
-                    track.role ===
-                    "PERCUSSION"
-                ) {
-
-                    const holes =
-                        getPercussionHoles(
-                            note.midi
-                        );
-
-
-                    if (!holes.length) {
-
-                        /*
-                            An unmapped percussion note
-                            remains ignored for the
-                            physical tracker.
-
-                            It can still be inspected
-                            in the MIDI editor.
-                        */
-
-                        return;
-
-                    }
-
-
-                    normalizedEvents.push({
-
-                        type: "PERCUSSION",
-
-                        time: startTime,
-
-                        duration,
-
-                        sourceTrack:
-                            track.name,
-
-                        sourceTrackIndex:
-                            track.index,
-
-                        sourceChannel:
-                            track.channel,
-
-                        midiNote:
-                            note.midi,
-
-                        division:
-                            "PERCUSSION",
-
-                        trackerHoles:
-                            holes
-
-                    });
-
-                    return;
-
-                }
-
-
-                const division =
-                    track.role;
-
-
-                const trackerHole =
-                    getTrackerHoleFromNote(
-                        note.midi,
-                        division
-                    );
-
-
-                if (trackerHole === null) {
-
-                    /*
-                        Notes outside the physical
-                        division range are discarded
-                        from the organ output.
-                    */
-
-                    return;
-
-                }
-
-
-                normalizedEvents.push({
-
-                    type: "NOTE",
-
-                    time: startTime,
-
-                    duration,
-
-                    sourceTrack:
-                        track.name,
-
-                    sourceTrackIndex:
-                        track.index,
-
-                    sourceChannel:
-                        track.channel,
-
-                    midiNote:
-                        note.midi,
-
-                    division,
-
-                    trackerHoles:
-                        [trackerHole]
-
-                });
-
-            });
-
-        });
-
-
-        normalizedEvents.sort(
-            (a, b) =>
-                a.time - b.time
-        );
-
-
-        return normalizedEvents;
-
-    }
-
-
-    /* =========================================================
-       ORGAN EVENT TIMELINE
-       ========================================================= */
-
-    function addTimelineEvent(
-        timeline,
-        time
-    ) {
-
-        const roundedTime =
-            Math.round(time * 1000) / 1000;
-
-
-        if (!timeline.has(roundedTime)) {
-
-            timeline.set(
-                roundedTime,
-                {
-                    on: new Set(),
-                    off: new Set()
-                }
-            );
-
-        }
-
-
-        return timeline.get(
-            roundedTime
-        );
-
-    }
-
-
-    /* =========================================================
-       BUILD STRING DATA
-       ========================================================= */
-
-    function buildOrganString(events) {
-
-        if (!events.length) {
-
-            return "";
-
-        }
-
-
-        /*
-            Remove leading silence.
-
-            The first playable event becomes time 0.
-        */
-
-        const firstTime =
-            Math.min(
-                ...events.map(
-                    event => event.time
-                )
-            );
-
-
-        const timeline =
-            new Map();
-
-
-        /*
-            Always reset registers at the
-            beginning of the roll.
-        */
-
-        const firstSlot =
-            addTimelineEvent(
-                timeline,
-                0
-            );
-
-
-        firstSlot.on.add(1);
-
-
-        /*
-            Static register state.
-
-            Register buttons represent registers
-            selected for the compilation.
-
-            They remain active until the physical
-            organ receives another Cancel Registers.
-        */
-
-        activeRegisters.forEach(
-            registerName => {
-
-                const register =
-                    REGISTERS[registerName];
-
-                if (
-                    register &&
-                    register.trackerHole !== null
-                ) {
-
-                    firstSlot.on.add(
-                        register.trackerHole
-                    );
-
-                }
-
-            }
-        );
-
-
-        events.forEach(event => {
-
-            const relativeStart =
-                event.time - firstTime;
-
-            const relativeEnd =
-                event.time +
-                event.duration -
-                firstTime;
-
-
-            const startSlot =
-                addTimelineEvent(
-                    timeline,
-                    relativeStart
-                );
-
-
-            const endSlot =
-                addTimelineEvent(
-                    timeline,
-                    relativeEnd
-                );
-
-
-            event.trackerHoles.forEach(
-                hole => {
-
-                    startSlot.on.add(
-                        hole
-                    );
-
-                    endSlot.off.add(
-                        hole
-                    );
-
-                }
-            );
-
-        });
-
-
-        const sortedTimes =
-            Array.from(timeline.keys())
-                .sort(
-                    (a, b) => a - b
-                );
-
-
-        const segments = [];
-
-        let lastTime = 0;
-
-
-        sortedTimes.forEach(time => {
-
-            const slot =
-                timeline.get(time);
-
-
-            const deltaMs =
-                Math.round(
-                    (time - lastTime) *
-                    1000
-                );
-
-
-            const values = [];
-
-
-            /*
-                ON first.
-            */
-
-            Array.from(slot.on)
-                .sort((a, b) => a - b)
-                .forEach(hole => {
-
-                    values.push(
-                        String(hole)
-                    );
-
-                });
-
-
-            /*
-                OFF second.
-
-                Negative tracker hole =
-                hole closes.
-            */
-
-            Array.from(slot.off)
-                .sort((a, b) => a - b)
-                .forEach(hole => {
-
-                    values.push(
-                        String(-hole)
-                    );
-
-                });
-
-
-            if (values.length) {
-
-                segments.push(
-                    `${deltaMs},${values.join(",")}`
-                );
-
-                lastTime = time;
-
-            }
-
-        });
-
-
-        return segments.join("|");
-
-    }
-
-
-    /* =========================================================
-       GENERATED MIDI
-       ========================================================= */
-
-    function buildGeneratedMidi(events) {
-
-        const midiOut =
-            new Midi();
-
-
-        /*
-            Create exactly the requested
-            10 MIDI tracks.
-        */
-
-        const outputTracks = {};
-
-
-        OUTPUT_MIDI_TRACKS.forEach(
-            (trackName, index) => {
-
-                const track =
-                    midiOut.addTrack();
-
-
-                track.name =
-                    trackName;
-
-
-                /*
-                    MIDI channel numbers inside
-                    @tonejs/midi are zero based.
-
-                    Channel 10 = index 9,
-                    therefore percussion uses 9.
-                */
-
-                track.channel =
-                    index;
-
-
-                outputTracks[
-                    trackName
-                ] = track;
-
-            }
-        );
-
-
-        /*
-            Bass:
-            directly into Bass track.
-        */
-
-        events
-            .filter(
-                event =>
-                    event.type === "NOTE" &&
-                    event.division === "BASS"
-            )
-            .forEach(event => {
-
-                outputTracks.Bass.addNote({
-
-                    midi:
-                        event.midiNote,
-
-                    time:
-                        event.time,
-
-                    duration:
-                        event.duration,
-
-                    velocity:
-                        OUTPUT_VELOCITY
-
-                });
-
-            });
-
-
-        /*
-            Accompaniment:
-            directly into Accompaniment track.
-        */
-
-        events
-            .filter(
-                event =>
-                    event.type === "NOTE" &&
-                    event.division === "ACCOMPANIMENT"
-            )
-            .forEach(event => {
-
-                outputTracks.Accompaniment.addNote({
-
-                    midi:
-                        event.midiNote,
-
-                    time:
-                        event.time,
-
-                    duration:
-                        event.duration,
-
-                    velocity:
-                        OUTPUT_VELOCITY
-
-                });
-
-            });
-
-
-        /*
-            Melody:
-            sent into every ACTIVE register track.
-
-            Example:
-
-                Cello + Violin active
-
-            means the same melody notes are written into
-            both the Cello and Violin output tracks.
-        */
-
-        const registerOutputNames =
-            Array.from(activeRegisters);
-
-
-        events
-            .filter(
-                event =>
-                    event.type === "NOTE" &&
-                    event.division === "MELODY"
-            )
-            .forEach(event => {
-
-                registerOutputNames
-                    .forEach(registerName => {
-
-                        const register =
-                            REGISTERS[registerName];
-
-
-                        if (!register) {
-
-                            return;
-
-                        }
-
-
-                        const outputTrack =
-                            outputTracks[
-                                register.midiTrackName
-                            ];
-
-
-                        if (!outputTrack) {
-
-                            return;
-
-                        }
-
-
-                        outputTrack.addNote({
-
-                            midi:
-                                event.midiNote,
-
-                            time:
-                                event.time,
-
-                            duration:
-                                event.duration,
-
-                            velocity:
-                                OUTPUT_VELOCITY
-
-                        });
-
-                    });
-
-            });
-
-
-        /*
-            Percussion:
-            all percussion remains on the single
-            Percussion output track.
-        */
-
-        events
-            .filter(
-                event =>
-                    event.type === "PERCUSSION"
-            )
-            .forEach(event => {
-
-                outputTracks.Percussion.addNote({
-
-                    midi:
-                        event.midiNote,
-
-                    time:
-                        event.time,
-
-                    duration:
-                        event.duration,
-
-                    velocity:
-                        OUTPUT_VELOCITY
-
-                });
-
-            });
-
-
-        /*
-            Sort notes on every generated track.
-
-            addNote normally handles the timing,
-            but sorting the source event list first
-            keeps the structure deterministic.
-        */
-
-        return midiOut;
-
-    }
-
-
-    /* =========================================================
-       PAPER ROLL DRAWING
-       ========================================================= */
-
-    function drawSlot(
-        ctx,
-        x,
-        y,
-        width,
-        height
-    ) {
-
-        /*
-            Guarantee a usable physical slot even
-            for extremely short percussion/control events.
-        */
-
-        const actualHeight =
-            Math.max(
-                width,
-                height
-            );
-
-
-        ctx.beginPath();
-
-
-        if (
-            typeof ctx.roundRect ===
-            "function"
-        ) {
-
-            ctx.roundRect(
-                x,
-                y,
-                width,
-                actualHeight,
-                width / 2
-            );
-
-        } else {
-
-            /*
-                Compatibility fallback.
-            */
-
-            ctx.rect(
-                x,
-                y,
-                width,
-                actualHeight
-            );
-
-        }
-
-
-        ctx.fill();
-
-    }
-
-
-    function createPaperRollEvents(events) {
-
-        const output = [];
-
-
-        if (!events.length) {
-
-            /*
-                Still create the register reset
-                if registers were selected.
-            */
-
-            output.push({
-
-                track: 1,
-
-                rawY: 0,
-
-                height:
-                    REGISTER_CONTROL_LENGTH_PX
-
-            });
-
-
-            activeRegisters.forEach(
-                registerName => {
-
-                    const register =
-                        REGISTERS[registerName];
-
-
-                    if (
-                        register &&
-                        register.trackerHole !== null
-                    ) {
-
-                        output.push({
-
-                            track:
-                                register.trackerHole,
-
-                            rawY: 0,
-
-                            height:
-                                REGISTER_CONTROL_LENGTH_PX
-
-                        });
-
-                    }
-
-                }
-            );
-
-
-            return output;
-
-        }
-
-
-        /*
-            Roll starts at the first actual event.
-        */
-
-        const firstTime =
-            Math.min(
-                ...events.map(
-                    event => event.time
-                )
-            );
-
-
-        /*
-            Reset registers at the top.
-        */
-
-        output.push({
-
-            track: 1,
-
-            rawY: 0,
-
-            height:
-                REGISTER_CONTROL_LENGTH_PX
-
-        });
-
-
-        /*
-            Register ON holes.
-        */
-
-        activeRegisters.forEach(
-            registerName => {
-
-                const register =
-                    REGISTERS[registerName];
-
-
-                if (
-                    register &&
-                    register.trackerHole !== null
-                ) {
-
-                    output.push({
-
-                        track:
-                            register.trackerHole,
-
-                        rawY: 0,
-
-                        height:
-                            REGISTER_CONTROL_LENGTH_PX
-
-                    });
-
-                }
-
-            }
-        );
-
-
-        events.forEach(event => {
-
-            const relativeTime =
-                event.time - firstTime;
-
-
-            const yStart =
-                relativeTime *
-                SCROLL_SPEED_PX_PER_SEC;
-
-
-            let height;
-
-
-            if (
-                event.type ===
-                "PERCUSSION"
-            ) {
-
-                height =
-                    PERCUSSION_HOLE_LENGTH_PX;
-
-            } else {
-
-                height =
-                    event.duration *
-                    SCROLL_SPEED_PX_PER_SEC;
-
-            }
-
-
-            height =
-                Math.max(
-                    height,
-                    TRACK_WIDTH
-                );
-
-
-            event.trackerHoles
-                .forEach(hole => {
-
-                    output.push({
-
-                        track:
-                            hole,
-
-                        rawY:
-                            yStart,
-
-                        height
-
-                    });
-
-                });
-
-        });
-
-
-        return output;
-
-    }
-
-
-    function renderPaperRoll(events) {
-
-        outputContainer.innerHTML = "";
-
-        generatedCanvases = [];
-
-
-        const rawEvents =
-            createPaperRollEvents(events);
-
-
-        if (!rawEvents.length) {
-
-            return;
-
-        }
-
-
-        const maximumY =
-            Math.max(
-                ...rawEvents.map(
-                    event =>
-                        event.rawY +
-                        event.height
-                )
-            );
-
-
-        const totalHeight =
-            maximumY + 200;
-
-
-        const canvasCount =
-            Math.max(
-                1,
-                Math.ceil(
-                    totalHeight /
-                    CANVAS_HEIGHT
-                )
-            );
-
-
-        /*
-            Convert to shifted events.
-        */
-
-        const shift =
-            events.length
-                ? Math.min(
-                    ...events.map(
-                        event => event.time
-                    )
-                ) *
-                  SCROLL_SPEED_PX_PER_SEC
-                : 0;
-
-
-        const shiftedEvents =
-            rawEvents.map(event => {
-
-                return {
-
-                    track:
-                        event.track,
-
-                    y:
-                        Math.max(
-                            0,
-                            event.rawY -
-                            shift
-                        ),
-
-                    height:
-                        event.height
-
-                };
-
-            });
-
-
-        for (
-            let pageIndex = 0;
-            pageIndex < canvasCount;
-            pageIndex++
-        ) {
-
-            const canvas =
-                document.createElement(
-                    "canvas"
-                );
-
-
-            canvas.width =
-                CANVAS_WIDTH;
-
-            canvas.height =
-                CANVAS_HEIGHT;
-
-
-            const ctx =
-                canvas.getContext("2d");
-
-
-            /*
-                Mirror horizontally.
-
-                Paper roll follows the orientation
-                used by the previous production renderer.
-            */
-
-            ctx.save();
-
-            ctx.translate(
-                CANVAS_WIDTH,
-                0
-            );
-
-            ctx.scale(
-                -1,
-                1
-            );
-
-
-            /*
-                Paper.
-            */
-
-            ctx.fillStyle =
-                "#fbf6eb";
-
-            ctx.fillRect(
-                0,
-                0,
-                CANVAS_WIDTH,
-                CANVAS_HEIGHT
-            );
-
-
-            /*
-                Tracker hole guide lines.
-            */
-
-            ctx.strokeStyle =
-                "rgba(210, 190, 160, 0.40)";
-
-            ctx.lineWidth = 1;
-
-
-            for (
-                let track = 0;
-                track <= TRACKS_COUNT;
-                track++
-            ) {
-
-                const x =
-                    MARGIN_X +
-                    track *
-                    TRACK_WIDTH;
-
-
-                ctx.beginPath();
-
-                ctx.moveTo(
-                    x,
-                    0
-                );
-
-                ctx.lineTo(
-                    x,
-                    CANVAS_HEIGHT
-                );
-
-                ctx.stroke();
-
-            }
-
-
-            /*
-                Punch the holes.
-            */
-
-            ctx.save();
-
-
-            ctx.globalCompositeOperation =
-                "destination-out";
-
-
-            const pageStart =
-                pageIndex *
-                CANVAS_HEIGHT;
-
-
-            const pageEnd =
-                pageStart +
-                CANVAS_HEIGHT;
-
-
-            shiftedEvents.forEach(
-                event => {
-
-                    if (
-                        event.y +
-                        event.height <
-                        pageStart
-                    ) {
-
-                        return;
-
-                    }
-
-
-                    if (
-                        event.y >
-                        pageEnd
-                    ) {
-
-                        return;
-
-                    }
-
-
-                    const renderY =
-                        event.y -
-                        pageStart;
-
-
-                    const renderX =
-                        MARGIN_X +
-                        ((event.track - 1) *
-                        TRACK_WIDTH) +
-                        2;
-
-
-                    const renderWidth =
-                        TRACK_WIDTH - 4;
-
-
-                    drawSlot(
-                        ctx,
-                        renderX,
-                        renderY,
-                        renderWidth,
-                        event.height
-                    );
-
-                }
-            );
-
-
-            ctx.restore();
-
-            ctx.restore();
-
-
-            /*
-                Display.
-            */
-
-            const wrapper =
-                document.createElement(
-                    "div"
-                );
-
-            wrapper.className =
-                "canvas-wrapper";
-
-
-            wrapper.appendChild(
-                canvas
-            );
-
-
-            outputContainer.appendChild(
-                wrapper
-            );
-
-
-            const label =
-                document.createElement(
-                    "div"
-                );
-
-            label.className =
-                "canvas-label";
-
-
-            label.textContent =
-                `Roll Page ${pageIndex + 1} of ${canvasCount}`;
-
-
-            outputContainer.appendChild(
-                label
-            );
-
-
-            generatedCanvases.push(
-                canvas
-            );
-
-        }
-
-
-        return canvasCount;
-
-    }
-
-
-    /* =========================================================
-       GENERATE EVERYTHING
-       ========================================================= */
-
-    generateButton.addEventListener(
-        "click",
-        () => {
-
-            try {
-
-                if (!loadedMidi) {
-
-                    alert(
-                        "Please open a MIDI file first."
-                    );
-
-                    return;
-
-                }
-
-
-                status.textContent =
-                    "Rasterizing MIDI into organ events...";
-
-
-                /*
-                    Build the common normalized representation.
-
-                    This is the single source of truth used
-                    by all three exporters.
-                */
-
-                const events =
-                    buildNormalizedEvents();
-
-
-                if (!events.length) {
-
-                    alert(
-                        "No usable organ events were found.\n\n" +
-                        "Check that at least one MIDI track is enabled " +
-                        "and assigned to Bass, Accompaniment, Melody, " +
-                        "or Percussion."
-                    );
-
-                    return;
-
-                }
-
-
-                /*
-                    Build string.
-                */
-
-                generatedString =
-                    buildOrganString(
-                        events
-                    );
-
-
-                stringOutput.value =
-                    generatedString;
-
-
-                /*
-                    Build new MIDI.
-                */
-
-                generatedMidi =
-                    buildGeneratedMidi(
-                        events
-                    );
-
-
-                /*
-                    Build paper roll.
-                */
-
-                const pageCount =
-                    renderPaperRoll(
-                        events
-                    );
-
-
-                /*
-                    Update summary.
-                */
-
-                document.getElementById(
-                    "stat-tracks"
-                ).textContent =
-                    editorTracks.length;
-
-
-                document.getElementById(
-                    "stat-notes"
-                ).textContent =
-                    events.length;
-
-
-                document.getElementById(
-                    "stat-registers"
-                ).textContent =
-                    activeRegisters.size;
-
-
-                document.getElementById(
-                    "stat-pages"
-                ).textContent =
-                    pageCount;
-
-
-                /*
-                    Mapping warnings.
-                */
-
-                const warnings = [];
-
-
-                if (
-                    activeRegisters.has(
-                        "Flageolet"
-                    ) &&
-                    REGISTERS.Flageolet.trackerHole === null
-                ) {
-
-                    warnings.push(
-                        "Flageolet is included in the generated MIDI, " +
-                        "but its physical 101-hole tracker-bar position " +
-                        "has not been assigned yet."
-                    );
-
-                }
-
-
-                /*
-                    Check for active divisions that had
-                    notes outside their configured ranges.
-                */
-
-                const activeRoles =
-                    new Set(
-                        editorTracks
-                            .filter(
-                                track =>
-                                    track.enabled
-                            )
-                            .map(
-                                track =>
-                                    track.role
-                            )
-                    );
-
-
-                if (
-                    activeRoles.has(
-                        "BASS"
-                    )
-                ) {
-
-                    warnings.push(
-                        "Bass mapping currently assumes MIDI 43 (G2) " +
-                        "is tracker hole 15."
-                    );
-
-                }
-
-
-                if (
-                    activeRoles.has(
-                        "ACCOMPANIMENT"
-                    )
-                ) {
-
-                    warnings.push(
-                        "Accompaniment mapping currently assumes " +
-                        "MIDI 60 (C4) is tracker hole 33."
-                    );
-
-                }
-
-
-                if (
-                    activeRoles.has(
-                        "MELODY"
-                    )
-                ) {
-
-                    warnings.push(
-                        "Melody mapping currently assumes MIDI 60 (C4) " +
-                        "is tracker hole 65."
-                    );
-
-                }
-
-
-                if (warnings.length) {
-
-                    mappingWarning.textContent =
-                        warnings.join(" ");
-
-                    mappingWarning.classList.remove(
-                        "hidden"
-                    );
-
-                } else {
-
-                    mappingWarning.classList.add(
-                        "hidden"
-                    );
-
-                }
-
-
-                summaryPanel.classList.remove(
-                    "hidden"
-                );
-
-
-                outputPanel.classList.remove(
-                    "hidden"
-                );
-
-
-                rollPanel.classList.remove(
-                    "hidden"
-                );
-
-
-                status.textContent =
-                    `Compilation complete. ` +
-                    `${events.length} normalized ON/OFF events generated. ` +
-                    `${pageCount} paper-roll page(s) created.`;
-
-
-            } catch (error) {
-
-                console.error(error);
-
-                status.textContent =
-                    "Compilation failed: " +
-                    error.message;
-
-
-                alert(
-                    "The organ compiler encountered an error.\n\n" +
-                    error.message
-                );
-
-            }
-
-        }
-    );
-
-
-    /* =========================================================
-       COPY STRING
-       ========================================================= */
-
-    document
-        .getElementById("copy-string-btn")
-        .addEventListener(
-            "click",
-            async () => {
-
-                if (!generatedString) {
-
-                    return;
-
-                }
-
-
-                try {
-
-                    await navigator.clipboard.writeText(
-                        generatedString
-                    );
-
-
-                    status.textContent =
-                        "Organ string data copied to clipboard.";
-
-                } catch (error) {
-
-                    /*
-                        Older-browser fallback.
-                    */
-
-                    stringOutput.select();
-
-                    document.execCommand(
-                        "copy"
-                    );
-
-
-                    status.textContent =
-                        "Organ string data copied.";
-
-                }
-
-            }
-        );
-
-
-    /* =========================================================
-       DOWNLOAD STRING
-       ========================================================= */
-
-    document
-        .getElementById("download-string-btn")
-        .addEventListener(
-            "click",
-            () => {
-
-                if (!generatedString) {
-
-                    return;
-
-                }
-
-
-                const filename =
-                    sanitizeFilename(
-                        customTitleInput.value
-                    ) +
-                    "-organ-string.txt";
-
-
-                const blob =
-                    new Blob(
-                        [generatedString],
-                        {
-                            type:
-                                "text/plain;charset=utf-8"
-                        }
-                    );
-
-
-                downloadBlob(
-                    blob,
-                    filename
-                );
-
-            }
-        );
-
-
-    /* =========================================================
-       DOWNLOAD GENERATED MIDI
-       ========================================================= */
-
-    document
-        .getElementById("download-midi-btn")
-        .addEventListener(
-            "click",
-            () => {
-
-                if (!generatedMidi) {
-
-                    return;
-
-                }
-
-
-                const bytes =
-                    generatedMidi.toArray();
-
-
-                const blob =
-                    new Blob(
-                        [bytes],
-                        {
-                            type:
-                                "audio/midi"
-                        }
-                    );
-
-
-                const filename =
-                    sanitizeFilename(
-                        customTitleInput.value
-                    ) +
-                    "-fairground-organ.mid";
-
-
-                downloadBlob(
-                    blob,
-                    filename
-                );
-
-            }
-        );
-
-
-    /* =========================================================
-       DOWNLOAD PAPER ROLL PAGES
-       ========================================================= */
-
-    document
-        .getElementById("download-images-btn")
-        .addEventListener(
-            "click",
-            () => {
-
-                if (!generatedCanvases.length) {
-
-                    return;
-
-                }
-
-
-                const baseName =
-                    sanitizeFilename(
-                        customTitleInput.value
-                    );
-
-
-                generatedCanvases.forEach(
-                    (canvas, index) => {
-
-                        setTimeout(
-                            () => {
-
-                                canvas.toBlob(
-                                    blob => {
-
-                                        if (!blob) {
-
-                                            return;
-
-                                        }
-
-
-                                        downloadBlob(
-                                            blob,
-
-                                            `${baseName}` +
-                                            `-roll-page-${index + 1}.png`
-                                        );
-
-                                    },
-
-                                    "image/png"
-                                );
-
-                            },
-
-                            index * 300
-                        );
-
-                    }
-                );
-
-            }
-        );
-
-
-    /* =========================================================
-       GENERIC DOWNLOAD
-       ========================================================= */
-
-    function downloadBlob(
-        blob,
-        filename
-    ) {
-
-        const url =
-            URL.createObjectURL(
-                blob
-            );
-
-
-        const link =
-            document.createElement("a");
-
-
-        link.href = url;
-
-        link.download =
-            filename;
-
-
-        document.body.appendChild(
-            link
-        );
-
-
-        link.click();
-
-
-        link.remove();
-
-
-        setTimeout(
-            () => {
-
-                URL.revokeObjectURL(
-                    url
-                );
-
-            },
-
-            1000
-        );
-
-    }
-
-
-    /* =========================================================
-       INITIALIZE
-       ========================================================= */
-
-    buildRegisterUI();
+  }else{
+    tracks.forEach(t=>{
+      if(!t.enabled)return;
+      if(t.role==='BASS'||t.role==='ACCOMPANIMENT'){
+        const div=t.role;t.notes.forEach(n=>{const h=trackerForMidi(n.midi,div);if(h===null){ignored++;return;}spans.push({hole:h,start:n.time,end:n.time+n.duration,type:'NOTE'});});
+      }else if(t.role==='REGISTER_OUTPUT'){
+        // Output MIDI has melody notes split by register. They still map to the melody division.
+        t.notes.forEach(n=>{const h=trackerForMidi(n.midi,'MELODY');if(h===null){ignored++;return;}spans.push({hole:h,start:n.time,end:n.time+n.duration,type:'NOTE'});});
+      }else if(t.role==='PERCUSSION'){
+        t.notes.forEach(n=>{const holes=percussionHoles(n.midi);if(!holes.length){ignored++;return;}holes.forEach(h=>spans.push({hole:h,start:n.time,end:n.time+PERCUSSION_PULSE_MS/1000,type:'PERCUSSION'}));});
+      }
+    });
+  }
+  spans.sort((a,b)=>a.start-b.start||a.hole-b.hole);return {spans,ignored};
+}
+
+function buildString(spans){
+  if(!spans.length)return '';
+  const first=Math.min(...spans.map(s=>s.start));const events=new Map();const push=(time,val)=>{const t=Math.round((time-first)*1000);if(!events.has(t))events.set(t,[]);events.get(t).push(val);};
+  spans.forEach(s=>{push(s.start,s.hole);push(s.end,-s.hole);});
+  const times=Array.from(events.keys()).sort((a,b)=>a-b);let last=0;const chunks=[];times.forEach(t=>{const vals=events.get(t).sort((a,b)=>{if(a>=0&&b<0)return -1;if(a<0&&b>=0)return 1;return a-b;});chunks.push(`${t-last},${vals.join(',')}`);last=t;});return chunks.join('|');
+}
+
+function activeRegistersForMelodyNote(noteTime){return Array.from(registerStateAt(noteTime));}
+function buildGeneratedMidi(){
+  const out=new Midi();
+  const tracksOut={};OUTPUT_TRACKS.forEach((name,i)=>{const t=out.addTrack();t.name=name;t.channel=i;tracksOut[name]=t;});
+  if(sourceMode==='ORGAN_OUTPUT'){
+    tracks.forEach(t=>{if(!t.enabled)return;const target=OUTPUT_TRACKS.find(x=>x.toLowerCase()===t.name.toLowerCase());if(!target)return;t.notes.forEach(n=>tracksOut[target].addNote({midi:n.midi,time:n.time,duration:n.duration,velocity:FIXED_VELOCITY/127}));});
+    return out;
+  }
+  tracks.forEach(t=>{
+    if(!t.enabled)return;
+    if(t.role==='BASS')t.notes.forEach(n=>tracksOut.Bass.addNote({midi:n.midi,time:n.time,duration:n.duration,velocity:FIXED_VELOCITY/127}));
+    else if(t.role==='ACCOMPANIMENT')t.notes.forEach(n=>tracksOut.Accompaniment.addNote({midi:n.midi,time:n.time,duration:n.duration,velocity:FIXED_VELOCITY/127}));
+    else if(t.role==='PERCUSSION')t.notes.forEach(n=>tracksOut.Percussion.addNote({midi:n.midi,time:n.time,duration:n.duration,velocity:FIXED_VELOCITY/127}));
+    else if(t.role==='MELODY')t.notes.forEach(n=>activeRegistersForMelodyNote(n.time).forEach(reg=>tracksOut[reg].addNote({midi:n.midi,time:n.time,duration:n.duration,velocity:FIXED_VELOCITY/127})));
+  });
+  return out;
+}
+
+function renderRoll(spans){
+  const container=$('roll-container');container.innerHTML='';canvases=[];if(!spans.length)return 0;
+  const first=Math.min(...spans.map(s=>s.start));const normalized=spans.map(s=>({hole:s.hole,start:(s.start-first)*ROLL_SPEED,end:(s.end-first)*ROLL_SPEED}));
+  const total=Math.max(...normalized.map(s=>s.end))+120;const pages=Math.max(1,Math.ceil(total/CANVAS_HEIGHT));
+  for(let page=0;page<pages;page++){
+    const canvas=document.createElement('canvas');canvas.width=CANVAS_WIDTH;canvas.height=CANVAS_HEIGHT;const ctx=canvas.getContext('2d');
+    ctx.save();ctx.translate(CANVAS_WIDTH,0);ctx.scale(-1,1);
+    ctx.fillStyle='#fbf7f0';ctx.fillRect(0,0,CANVAS_WIDTH,CANVAS_HEIGHT);
+    ctx.strokeStyle='rgba(205,185,155,.38)';ctx.lineWidth=1;for(let i=0;i<=TRACK_COUNT;i++){const x=MARGIN_X+i*TRACK_WIDTH;ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,CANVAS_HEIGHT);ctx.stroke();}
+    ctx.globalCompositeOperation='destination-out';const ps=page*CANVAS_HEIGHT,pe=ps+CANVAS_HEIGHT;
+    normalized.forEach(s=>{if(s.end<ps||s.start>pe)return;const y=Math.max(0,s.start-ps);const h=Math.max(TRACK_WIDTH,Math.min(CANVAS_HEIGHT,s.end)-Math.max(0,s.start-ps));if(h<=0)return;const x=MARGIN_X+(s.hole-1)*TRACK_WIDTH+2;drawRound(ctx,x,y,TRACK_WIDTH-4,h);});
+    ctx.restore();
+    const wrap=document.createElement('div');wrap.className='roll-wrap';wrap.appendChild(canvas);container.appendChild(wrap);const label=document.createElement('div');label.className='page-label';label.textContent=`Roll Page ${page+1} of ${pages}`;container.appendChild(label);canvases.push(canvas);
+  }
+  return pages;
+}
+function drawRound(ctx,x,y,w,h){ctx.beginPath();if(ctx.roundRect)ctx.roundRect(x,y,w,h,Math.min(w/2,6));else ctx.rect(x,y,w,h);ctx.fill();}
+
+function generateOutputs(){
+  if(!midi)return;
+  const {spans,ignored}=physicalEvents();generatedString=buildString(spans);generatedMidi=buildGeneratedMidi();
+  $('string-output').value=generatedString;
+  const pages=renderRoll(spans);
+  $('stat-tracks').textContent=tracks.length;$('stat-notes').textContent=countNotes();$('stat-regs').textContent=registrationEvents.length;$('stat-pages').textContent=pages;$('stat-ignored').textContent=ignored;
+  $('summary-panel').classList.remove('hidden');$('output-panel').classList.remove('hidden');$('roll-panel').classList.remove('hidden');
+  const flags=[];
+  if(registrationEvents.some(e=>e.name==='Flageolet'))flags.push('Flageolet has no assigned physical tracker control hole in the supplied 1–14 layout, so its registration event is not punched into the roll; its generated MIDI track is still created.');
+  if(sourceMode==='SOURCE')flags.push('Bass mapping is MIDI 31–48 → tracker 15–32; Accompaniment is MIDI 48–79 → 33–64; Melody is MIDI 60–96 → 65–101.');
+  $('mapping-note').textContent=flags.join(' ');
+  setStatus(`Outputs generated: ${pages} paper-roll page(s), ${generatedString.length.toLocaleString()} string characters, 10-track organ MIDI.`);
+}
+
+function downloadBlob(blob,name){const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+
+$('midi-file').addEventListener('change',()=>{const f=$('midi-file').files[0];$('open-btn').disabled=!f;if(f&&!$('file-name').value.trim())$('file-name').value=safeName(f.name);});
+$('open-btn').onclick=openMidiEditor;
+$('reset-btn').onclick=()=>{registrationEvents=[];undoStack=[];redoStack=[];cursorSec=0;renderAll();updateHistoryButtons();};
+$('all-on-btn').onclick=()=>{tracks.forEach(t=>t.enabled=true);renderTracks();renderTimeline();};
+$('all-off-btn').onclick=()=>{tracks.forEach(t=>t.enabled=false);renderTracks();renderTimeline();};
+$('play-btn').onclick=startPlayback;$('pause-btn').onclick=pausePlayback;$('stop-btn').onclick=stopPlayback;
+$('undo-btn').onclick=undo;$('redo-btn').onclick=redo;
+$('cancel-registers').onclick=addCancel;$('generate-btn').onclick=generateOutputs;
+$('copy-string').onclick=async()=>{if(!generatedString)return;try{await navigator.clipboard.writeText(generatedString);setStatus('Organ string data copied.');}catch{ $('string-output').select();document.execCommand('copy');setStatus('Organ string data copied.');}};
+$('download-string').onclick=()=>{if(generatedString)downloadBlob(new Blob([generatedString],{type:'text/plain'}),safeName($('file-name').value)+'-organ-string.txt');};
+$('download-midi').onclick=()=>{if(generatedMidi)downloadBlob(new Blob([generatedMidi.toArray()],{type:'audio/midi'}),safeName($('file-name').value)+'-fairground-organ.mid');};
+$('download-source-btn').onclick=()=>{if(!midi)return;downloadBlob(new Blob([midi.toArray()],{type:'audio/midi'}),safeName($('file-name').value)+'-edited-source.mid');};
+$('download-roll').onclick=()=>{if(!canvases.length)return;const base=safeName($('file-name').value);canvases.forEach((c,i)=>setTimeout(()=>c.toBlob(b=>b&&downloadBlob(b,`${base}-roll-page-${i+1}.png`),'image/png'),i*250));};
+window.addEventListener('resize',()=>{if(midi)renderTimeline();});
+window.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){e.preventDefault();e.shiftKey?redo():undo();}else if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='y'){e.preventDefault();redo();}else if(e.code==='Space'&&!e.target.matches('input,textarea,select')){e.preventDefault();playing?pausePlayback():startPlayback();}});
+
+function renderAll(){if(!midi)return;renderTracks();renderRegisters();updateCursorUI();updateHistoryButtons();renderTimeline();}
 
 </script>
-
 </body>
 </html>
