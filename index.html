@@ -18,7 +18,9 @@ input[type=text]{min-width:240px}.btns{display:flex;gap:8px;flex-wrap:wrap}butto
 .status{margin-top:10px;min-height:18px;color:#86ef9d;font-size:13px}.badge{display:inline-block;padding:4px 8px;border-radius:999px;background:#333;font-size:11px;color:#ccc}.badge.source{background:#204d77}.badge.output{background:#5c471c}
 .legend{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.legend span{font-size:11px;background:#2d2d2d;border:1px solid #444;border-radius:4px;padding:5px 7px;color:#ccc}
 .editor-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.editor-toolbar .spacer{flex:1}.time-readout{font-family:"Courier New",monospace;color:#fff;background:#111;border:1px solid #444;border-radius:5px;padding:8px 10px;min-width:105px;text-align:center}
-.timeline-shell{border:1px solid var(--border);border-radius:7px;overflow:hidden;background:var(--timeline)}.timeline-scroll{overflow:auto;max-height:560px}.timeline-canvas{display:block;background:var(--timeline)}
+.timeline-shell{border:1px solid var(--border);border-radius:7px;overflow:hidden;background:var(--timeline)}
+.timeline-scroll{overflow:auto;max-height:650px}
+.timeline-canvas{display:block;background:var(--timeline);cursor:crosshair}
 .scrubber{margin-top:10px}.scrubber input[type=range]{width:100%}.scrub-row{display:flex;gap:10px;align-items:center}.scrub-row output{font-family:monospace;color:#fff;min-width:120px;text-align:right}
 .track-editor{display:grid;grid-template-columns:1fr 330px;gap:14px;margin-top:14px}@media(max-width:1000px){.track-editor{grid-template-columns:1fr}}
 .track-list{display:flex;flex-direction:column;gap:7px;max-height:420px;overflow:auto}.track-row{display:grid;grid-template-columns:34px 18px minmax(140px,1fr) 130px 85px;align-items:center;gap:8px;background:var(--panel2);border:1px solid #353535;border-radius:6px;padding:8px}.track-row.off{opacity:.45}.track-num{text-align:center;color:#888;font-weight:700}.track-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:700}.track-info{font-size:11px;color:#888;margin-top:2px}.track-enable{width:17px;height:17px}.role-select{width:100%;padding:7px}
@@ -57,7 +59,11 @@ input[type=text]{min-width:240px}.btns{display:flex;gap:8px;flex-wrap:wrap}butto
         <div class="scrubber">
             <div class="scrub-row"><input id="time-slider" type="range" min="0" max="1" step="0.001" value="0" disabled><output id="slider-time">00:00.00</output></div>
         </div>
-        <div class="timeline-shell" style="margin-top:10px"><div id="timeline-scroll" class="timeline-scroll"><canvas id="timeline-canvas" class="timeline-canvas"></canvas></div></div>
+        <div class="timeline-shell" style="margin-top:10px">
+    <div id="timeline-scroll" class="timeline-scroll">
+        <canvas id="timeline-canvas" class="timeline-canvas"></canvas>
+    </div>
+</div>
 
         <div class="track-editor">
             <div>
@@ -175,6 +181,12 @@ let redoStack = [];
 let cursorSec = 0;
 let durationSec = 0;
 let timelineZoom = 70;
+
+// Piano roll settings
+const PIANO_KEY_WIDTH = 72;
+const PIANO_KEY_HEIGHT = 16;
+const PIANO_MIN_MIDI = 24;
+const PIANO_MAX_MIDI = 96;
 let playing = false;
 let playWallStart = 0;
 let playCursorStart = 0;
@@ -278,6 +290,20 @@ function roleForTrack(track,index){
 }
 function trackLabel(role){return ({BASS:'Bass',ACCOMPANIMENT:'Accompaniment',MELODY:'Melody',PERCUSSION:'Percussion',REGISTER_OUTPUT:'Register Output',IGNORE:'Ignore'})[role]||role;}
 
+function normalizeMidiNotes(){
+  if(!midi)return;
+
+  midi.tracks.forEach(track=>{
+    // Remove sustain pedal and all other MIDI control-change data.
+    track.controlChanges = {};
+
+    // Force every note to velocity 127.
+    track.notes.forEach(note=>{
+      note.velocity = 1;
+    });
+  });
+}
+    
 function openMidiEditor(){
   if(!$('midi-file').files.length)return;
   try{
@@ -287,7 +313,21 @@ function openMidiEditor(){
       originalMidiBytes=buf.slice(0);
       midi=new Midi(buf);
       sourceMode=detectFormat(midi);
-      tracks=midi.tracks.map((t,index)=>({index,name:t.name||`Track ${index+1}`,channel:Number.isFinite(t.channel)?t.channel:0,notes:t.notes||[],enabled:true,role:roleForTrack(t,index)}));
+      midi=new Midi(buf);
+
+// Normalize the imported MIDI before anything else uses it.
+normalizeMidiNotes();
+
+sourceMode=detectFormat(midi);
+
+tracks=midi.tracks.map((t,index)=>({
+  index,
+  name:t.name||`Track ${index+1}`,
+  channel:Number.isFinite(t.channel)?t.channel:0,
+  notes:t.notes||[],
+  enabled:true,
+  role:roleForTrack(t,index)
+}));
       durationSec=Math.max(0.1,Number(midi.duration)||Math.max(...tracks.flatMap(t=>t.notes.map(n=>n.time+n.duration)),0));
       cursorSec=0; registrationEvents=[]; undoStack=[]; redoStack=[]; renderAll();
       $('editor-panel').classList.remove('hidden'); $('summary-panel').classList.add('hidden'); $('output-panel').classList.add('hidden'); $('roll-panel').classList.add('hidden');
@@ -316,36 +356,445 @@ function renderTracks(){
 }
 function escapeHtml(v){return String(v).replace(/[&<>"']/g,s=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));}
 
-function timelineLanes(){
-  if(sourceMode==='SOURCE') return tracks.length;
-  return Math.max(tracks.length,10);
-}
+    
 function renderTimeline(){
-  if(!midi)return;
-  const laneH=42, labelW=145, width=Math.max(1400,Math.ceil(durationSec*timelineZoom));
-  const height=laneH*timelineLanes(); const canvas=$('timeline-canvas'); canvas.width=labelW+width; canvas.height=height; canvas.style.width=(labelW+width)+'px'; canvas.style.height=height+'px';
-  const ctx=canvas.getContext('2d'); ctx.clearRect(0,0,canvas.width,canvas.height); ctx.fillStyle='#0e0e0e';ctx.fillRect(0,0,canvas.width,canvas.height);
-  // time grid
-  const pxPerSec=timelineZoom;
-  ctx.font='11px sans-serif';
-  for(let sec=0;sec<=durationSec+0.001;sec+=1){const x=labelW+sec*pxPerSec;ctx.strokeStyle=sec%5===0?'#454545':'#292929';ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,height);ctx.stroke();if(sec%5===0){ctx.fillStyle='#777';ctx.fillText(fmt(sec),x+3,12);}}
-  tracks.slice(0,timelineLanes()).forEach((t,i)=>{
-    const y=i*laneH; ctx.strokeStyle='#2a2a2a';ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(canvas.width,y);ctx.stroke();ctx.fillStyle=t.enabled?'#ddd':'#666';ctx.fillText(`${i+1}. ${t.name||'Track'}`,8,y+26);ctx.fillStyle='#666';ctx.font='10px sans-serif';ctx.fillText(`Ch ${t.channel+1} • ${trackLabel(t.role)}`,8,y+38);ctx.font='11px sans-serif';
-    if(!t.enabled)return;
-    t.notes.forEach(n=>{const x=labelW+n.time*pxPerSec;const w=Math.max(2,n.duration*pxPerSec); if(x+w<labelW||x>canvas.width)return; let fill='#4aa3ff';if(t.role==='BASS')fill='#db5962';else if(t.role==='ACCOMPANIMENT')fill='#55bd72';else if(t.role==='PERCUSSION')fill='#e8a044';else if(t.role==='REGISTER_OUTPUT')fill='#b37be8';ctx.fillStyle=fill;ctx.fillRect(x,y+15,Math.max(1,w),10);});
-  });
-  // registration markers
-  registrationEvents.forEach(e=>{const x=labelW+e.time*pxPerSec;ctx.strokeStyle=e.type==='CANCEL'?'#ff6565':'#b57bff';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,height);ctx.stroke();});
-  // playhead
-  const px=labelW+cursorSec*pxPerSec;ctx.strokeStyle='#36a7ff';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(px,0);ctx.lineTo(px,height);ctx.stroke();
-}
 
+    if(!midi)return;
+
+    const canvas=$('timeline-canvas');
+    const ctx=canvas.getContext('2d');
+
+    const pxPerSec=timelineZoom;
+
+    const keyWidth=PIANO_KEY_WIDTH;
+    const keyHeight=PIANO_KEY_HEIGHT;
+
+    const minMidi=PIANO_MIN_MIDI;
+    const maxMidi=PIANO_MAX_MIDI;
+
+    const noteRows=maxMidi-minMidi+1;
+
+    const width=Math.max(
+        1400,
+        Math.ceil(durationSec*pxPerSec)
+    );
+
+    const height=
+        noteRows*keyHeight;
+
+    canvas.width=
+        keyWidth+width;
+
+    canvas.height=
+        height;
+
+    canvas.style.width=
+        `${keyWidth+width}px`;
+
+    canvas.style.height=
+        `${height}px`;
+
+    ctx.clearRect(
+        0,
+        0,
+        canvas.width,
+        canvas.height
+    );
+
+    /*
+        ============================================================
+        BACKGROUND
+        ============================================================
+    */
+
+    ctx.fillStyle='#101010';
+
+    ctx.fillRect(
+        0,
+        0,
+        canvas.width,
+        canvas.height
+    );
+
+
+    /*
+        ============================================================
+        PIANO KEYS + PITCH GRID
+        ============================================================
+    */
+
+    for(
+        let midiNote=maxMidi;
+        midiNote>=minMidi;
+        midiNote--
+    ){
+
+        const row=
+            maxMidi-midiNote;
+
+        const y=
+            row*keyHeight;
+
+        const pitchClass=
+            midiNote%12;
+
+        const isBlack=
+            [1,3,6,8,10].includes(
+                pitchClass
+            );
+
+
+        /*
+            Note-area background
+        */
+
+        ctx.fillStyle=
+            isBlack
+                ? '#171717'
+                : '#222222';
+
+        ctx.fillRect(
+            keyWidth,
+            y,
+            width,
+            keyHeight
+        );
+
+
+        /*
+            Piano key
+        */
+
+        ctx.fillStyle=
+            isBlack
+                ? '#090909'
+                : '#dddddd';
+
+        ctx.fillRect(
+            0,
+            y,
+            keyWidth,
+            keyHeight
+        );
+
+
+        /*
+            Key separator
+        */
+
+        ctx.strokeStyle=
+            isBlack
+                ? '#303030'
+                : '#444444';
+
+        ctx.lineWidth=1;
+
+        ctx.beginPath();
+
+        ctx.moveTo(
+            0,
+            y+keyHeight
+        );
+
+        ctx.lineTo(
+            canvas.width,
+            y+keyHeight
+        );
+
+        ctx.stroke();
+
+
+        /*
+            MIDI number
+        */
+
+        ctx.fillStyle=
+            isBlack
+                ? '#aaaaaa'
+                : '#111111';
+
+        ctx.font='10px sans-serif';
+
+        ctx.fillText(
+            String(midiNote),
+            7,
+            y+11
+        );
+
+
+        /*
+            Octave label on C notes
+        */
+
+        if(pitchClass===0){
+
+            const octave=
+                Math.floor(midiNote/12)-1;
+
+            ctx.font=
+                'bold 10px sans-serif';
+
+            ctx.fillText(
+                `C${octave}`,
+                34,
+                y+11
+            );
+        }
+    }
+
+
+    /*
+        ============================================================
+        TIME GRID
+        ============================================================
+    */
+
+    for(
+        let sec=0;
+        sec<=durationSec+0.001;
+        sec+=1
+    ){
+
+        const x=
+            keyWidth+
+            sec*pxPerSec;
+
+        ctx.strokeStyle=
+            sec%5===0
+                ? '#454545'
+                : '#292929';
+
+        ctx.lineWidth=1;
+
+        ctx.beginPath();
+
+        ctx.moveTo(
+            x,
+            0
+        );
+
+        ctx.lineTo(
+            x,
+            height
+        );
+
+        ctx.stroke();
+
+
+        if(sec%5===0){
+
+            ctx.fillStyle='#888';
+
+            ctx.font=
+                '10px sans-serif';
+
+            ctx.fillText(
+                fmt(sec),
+                x+3,
+                12
+            );
+        }
+    }
+
+
+    /*
+        ============================================================
+        MIDI NOTES
+        ============================================================
+        
+        IMPORTANT:
+        Notes are NOT placed according to their track anymore.
+
+        Their vertical position comes from n.midi.
+
+        This is what makes this a real piano roll.
+        ============================================================
+    */
+
+    tracks.forEach(t=>{
+
+        if(!t.enabled)return;
+
+        t.notes.forEach(n=>{
+
+            if(
+                n.midi<minMidi ||
+                n.midi>maxMidi
+            ){
+                return;
+            }
+
+
+            const x=
+                keyWidth+
+                n.time*pxPerSec;
+
+            const y=
+                (maxMidi-n.midi)*
+                keyHeight;
+
+            const w=
+                Math.max(
+                    2,
+                    n.duration*pxPerSec
+                );
+
+
+            /*
+                Keep the existing role colors.
+            */
+
+            let fill='#4aa3ff';
+
+            if(t.role==='BASS'){
+                fill='#db5962';
+            }
+            else if(t.role==='ACCOMPANIMENT'){
+                fill='#55bd72';
+            }
+            else if(t.role==='PERCUSSION'){
+                fill='#e8a044';
+            }
+            else if(t.role==='REGISTER_OUTPUT'){
+                fill='#b37be8';
+            }
+            else if(t.role==='MELODY'){
+                fill='#4aa3ff';
+            }
+
+
+            /*
+                Don't draw notes outside the visible
+                horizontal region.
+            */
+
+            if(
+                x+w<keyWidth ||
+                x>canvas.width
+            ){
+                return;
+            }
+
+
+            ctx.fillStyle=fill;
+
+            ctx.fillRect(
+                x,
+                y+2,
+                Math.max(1,w),
+                Math.max(
+                    3,
+                    keyHeight-4
+                )
+            );
+
+
+            /*
+                Subtle note border.
+            */
+
+            ctx.strokeStyle=
+                'rgba(255,255,255,.20)';
+
+            ctx.strokeRect(
+                x,
+                y+2,
+                Math.max(1,w),
+                Math.max(
+                    3,
+                    keyHeight-4
+                )
+            );
+        });
+    });
+
+
+    /*
+        ============================================================
+        REGISTRATION EVENTS
+        ============================================================
+    */
+
+    registrationEvents.forEach(e=>{
+
+        const x=
+            keyWidth+
+            e.time*pxPerSec;
+
+        ctx.strokeStyle=
+            e.type==='CANCEL'
+                ? '#ff6565'
+                : '#b57bff';
+
+        ctx.lineWidth=2;
+
+        ctx.beginPath();
+
+        ctx.moveTo(
+            x,
+            0
+        );
+
+        ctx.lineTo(
+            x,
+            height
+        );
+
+        ctx.stroke();
+    });
+
+
+    /*
+        ============================================================
+        PLAYHEAD
+        ============================================================
+    */
+
+    const px=
+        keyWidth+
+        cursorSec*pxPerSec;
+
+    ctx.strokeStyle=
+        '#36a7ff';
+
+    ctx.lineWidth=2;
+
+    ctx.beginPath();
+
+    ctx.moveTo(
+        px,
+        0
+    );
+
+    ctx.lineTo(
+        px,
+        height
+    );
+
+    ctx.stroke();
+}
+    
 function seek(sec){cursorSec=clamp(sec,0,durationSec);$('time-slider').value=cursorSec;updateCursorUI();renderRegisters();renderTimeline();if(playing)restartPlaybackAtCursor();}
 function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
 function updateCursorUI(){$('cursor-time').textContent=fmt(cursorSec);$('slider-time').value=fmt(cursorSec);}
 
 $('time-slider').addEventListener('input',e=>seek(Number(e.target.value)));
-$('timeline-canvas').addEventListener('pointerdown',e=>{const r=e.currentTarget.getBoundingClientRect();const x=e.clientX-r.left-145;seek(x/timelineZoom);});
+$('timeline-canvas').addEventListener('pointerdown',e=>{
+
+    const r=
+        e.currentTarget.getBoundingClientRect();
+
+    const x=
+        e.clientX-
+        r.left-
+        PIANO_KEY_WIDTH;
+
+    if(x<0)return;
+
+    seek(
+        x/timelineZoom
+    );
+});
 
 function midiNotesForPreview(){
   const out=[];
