@@ -312,8 +312,6 @@ function openMidiEditor(){
     file.arrayBuffer().then(buf=>{
       originalMidiBytes=buf.slice(0);
       midi=new Midi(buf);
-      sourceMode=detectFormat(midi);
-      midi=new Midi(buf);
 
 // Normalize the imported MIDI before anything else uses it.
 normalizeMidiNotes();
