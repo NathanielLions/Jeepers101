@@ -695,7 +695,7 @@ function physicalEvents(){
   return {plainSpans,noteSpans,spans:[...plainSpans,...noteSpans],ignored};
 }
 
-const sortTickValues=(a,b)=>{if(a>=0&&b<0)return -1;if(a<0&&b>=0)return 1;return a-b;};
+const sortTickValues=(a,b)=>{if(a<0&&b>=0)return -1;if(a>=0&&b<0)return 1;return Math.abs(a)-Math.abs(b);};
 
 function buildString(plainSpans,noteSpans){
   if(!plainSpans.length&&!noteSpans.length)return '';
@@ -758,7 +758,7 @@ function renderRoll(spans){
     ctx.fillStyle='#fbf7f0';ctx.fillRect(0,0,CANVAS_WIDTH,CANVAS_HEIGHT);
     ctx.strokeStyle='rgba(205,185,155,.38)';ctx.lineWidth=1;for(let i=0;i<=TRACK_COUNT;i++){const x=MARGIN_X+i*TRACK_WIDTH;ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,CANVAS_HEIGHT);ctx.stroke();}
     ctx.globalCompositeOperation='destination-out';const ps=page*CANVAS_HEIGHT,pe=ps+CANVAS_HEIGHT;
-    normalized.forEach(s=>{if(s.end<ps||s.start>pe)return;const y=Math.max(0,s.start-ps);const h=Math.max(TRACK_WIDTH,Math.min(CANVAS_HEIGHT,s.end)-Math.max(0,s.start-ps));if(h<=0)return;const x=MARGIN_X+(s.hole-1)*TRACK_WIDTH+2;drawRound(ctx,x,y,TRACK_WIDTH-4,h);});
+    normalized.forEach(s=>{if(s.end<ps||s.start>pe)return;const top=Math.max(0,s.start-ps);let bottom=Math.min(CANVAS_HEIGHT,s.end-ps);if(s.end-ps<=CANVAS_HEIGHT)bottom-=3;let h=bottom-top;if(s.start>=ps)h=Math.max(TRACK_WIDTH,h);if(h<=0)return;const x=MARGIN_X+(s.hole-1)*TRACK_WIDTH+2;drawRound(ctx,x,top,TRACK_WIDTH-4,h);});
     ctx.restore();
     const wrap=document.createElement('div');wrap.className='roll-wrap';wrap.appendChild(canvas);container.appendChild(wrap);const label=document.createElement('div');label.className='page-label';label.textContent=`Roll Page ${page+1} of ${pages}`;container.appendChild(label);canvases.push(canvas);
   }
