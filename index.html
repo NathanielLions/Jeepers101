@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Fairground Organ MIDI Compiler v3</title>
+<title>Fairground Organ MIDI Compiler v3.1</title>
 <script src="https://unpkg.com/@tonejs/midi"></script>
 <style>
 :root{--bg:#171717;--panel:#242424;--panel2:#1c1c1c;--border:#3d3d3d;--text:#eee;--muted:#aaa;--blue:#1677d2;--green:#2e9f56;--red:#b83b3b;--orange:#c98721;--timeline:#111;--grid:#2d2d2d;--playhead:#32a5ff;--paper:#fbf7f0}
@@ -19,8 +19,9 @@ input[type=text]{min-width:240px}.btns{display:flex;gap:8px;flex-wrap:wrap}butto
 .legend{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.legend span{font-size:11px;background:#2d2d2d;border:1px solid #444;border-radius:4px;padding:5px 7px;color:#ccc}
 .editor-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.editor-toolbar .spacer{flex:1}.time-readout{font-family:"Courier New",monospace;color:#fff;background:#111;border:1px solid #444;border-radius:5px;padding:8px 10px;min-width:105px;text-align:center}
 .timeline-shell{border:1px solid var(--border);border-radius:7px;overflow:hidden;background:var(--timeline)}
-.timeline-scroll{overflow:auto;max-height:650px}
+.timeline-scroll{overflow:auto;max-height:650px;position:relative}
 .timeline-canvas{display:block;background:var(--timeline);cursor:crosshair}
+.playhead{position:absolute;top:0;left:0;width:2px;height:0;background:#36a7ff;pointer-events:none;will-change:transform}
 .scrubber{margin-top:10px}.scrubber input[type=range]{width:100%}.scrub-row{display:flex;gap:10px;align-items:center}.scrub-row output{font-family:monospace;color:#fff;min-width:120px;text-align:right}
 .track-editor{display:grid;grid-template-columns:1fr 330px;gap:14px;margin-top:14px}@media(max-width:1000px){.track-editor{grid-template-columns:1fr}}
 .track-list{display:flex;flex-direction:column;gap:7px;max-height:420px;overflow:auto}.track-row{display:grid;grid-template-columns:34px 18px minmax(140px,1fr) 130px 85px;align-items:center;gap:8px;background:var(--panel2);border:1px solid #353535;border-radius:6px;padding:8px}.track-row.off{opacity:.45}.track-num{text-align:center;color:#888;font-weight:700}.track-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:700}.track-info{font-size:11px;color:#888;margin-top:2px}.track-enable{width:17px;height:17px}.role-select{width:100%;padding:7px}
@@ -35,7 +36,7 @@ input[type=text]{min-width:240px}.btns{display:flex;gap:8px;flex-wrap:wrap}butto
 <body>
 <div class="container">
     <div class="panel">
-        <h1>Fairground Organ MIDI Compiler v3</h1>
+        <h1>Fairground Organ MIDI Compiler v3.1</h1>
         <p style="margin:0">MIDI editor + registration timeline + 101-hole tracker roll + organ string data + 10-track organ MIDI.</p>
         <div class="controls" style="margin-top:12px">
             <div class="field"><label>MIDI FILE</label><input id="midi-file" type="file" accept=".mid,.midi"></div>
@@ -60,10 +61,11 @@ input[type=text]{min-width:240px}.btns{display:flex;gap:8px;flex-wrap:wrap}butto
             <div class="scrub-row"><input id="time-slider" type="range" min="0" max="1" step="0.001" value="0" disabled><output id="slider-time">00:00.00</output></div>
         </div>
         <div class="timeline-shell" style="margin-top:10px">
-    <div id="timeline-scroll" class="timeline-scroll">
-        <canvas id="timeline-canvas" class="timeline-canvas"></canvas>
-    </div>
-</div>
+            <div id="timeline-scroll" class="timeline-scroll">
+                <canvas id="timeline-canvas" class="timeline-canvas"></canvas>
+                <div id="playhead" class="playhead"></div>
+            </div>
+        </div>
 
         <div class="track-editor">
             <div>
@@ -115,7 +117,7 @@ input[type=text]{min-width:240px}.btns{display:flex;gap:8px;flex-wrap:wrap}butto
 
 <script>
 /* ============================================================
-   FAIRGROUND ORGAN COMPILER V3
+   FAIRGROUND ORGAN COMPILER V3.1
    - Source MIDI: Ch1 Bass, Ch2 Accompaniment, Ch3 Melody, Ch10 Percussion.
    - Output MIDI: Ch1 Bass, Ch2 Flute, Ch3 Cello, Ch4 Accompaniment,
      Ch5 Forte, Ch6 Violin, Ch7 Flageolet, Ch8 Bourdon, Ch9 Glockenspiel,
@@ -128,10 +130,19 @@ input[type=text]{min-width:240px}.btns{display:flex;gap:8px;flex-wrap:wrap}butto
        15       = Flageolet (register ON)
        16/17/18 = Division marker: Bass / Accompaniment / Melody
        31-96    = raw MIDI pitch number, interpreted under whichever division
-                  marker most recently appeared IN THE SAME TICK (the in-game
-                  parser resets the active division at the start of every
-                  tick, so a division marker must be re-emitted in any tick
-                  that turns a note of that division on or off).
+                  marker most recently appeared IN THE SAME TICK.
+
+   v3.1 PLAYBACK CHANGES
+   - Preview audio uses a look-ahead scheduler: only notes starting in the
+     next ~1.2 s are turned into audio nodes, topped up every 40 ms. The old
+     version built every note of the whole song at once (thousands of nodes),
+     which froze the page and overloaded the audio engine.
+   - All voices go through one master gain + compressor (no clipping).
+   - One shared noise buffer for snare/cymbal instead of one per hit.
+   - Finished nodes are disconnected and released automatically.
+   - Playhead is a lightweight overlay; the piano roll is only redrawn when
+     notes/registers/tracks change, not on every animation frame.
+   - The playhead follows the audio clock, so picture and sound stay in sync.
    ============================================================ */
 
 const CANVAS_WIDTH = 1024;
@@ -150,45 +161,19 @@ const REGISTER_NAMES = ['Cello','Flute','Glockenspiel','Bourdon','Violin','Flage
 const REGISTER_TRACK_TO_NAME = {'Cello':'Cello','Forte':'Forte','Violin':'Violin','Flute':'Flute','Flageolet':'Flageolet','Bourdon':'Bourdon','Glockenspiel':'Glockenspiel'};
 const OUTPUT_INDEX_BY_NAME = Object.fromEntries(OUTPUT_TRACKS.map((x,i)=>[x,i]));
 
-/* The in-game model's pipes are named by their literal MIDI pitch number
-   (31-96) under a rank folder, and the casing script keys off that same
-   raw pitch — there is no separate "tracker hole" numbering to compute.
-   The only thing we still need per note is which division (Bass /
-   Accompaniment / Melody) it belongs to, since the game script uses that
-   to pick which activeNotes table (and therefore which ranks) apply. */
 const NOTE_MIDI_MIN = 31;
 const NOTE_MIDI_MAX = 96;
 const DIVISION_MARKER_CODES = {BASS:16, ACCOMPANIMENT:17, MELODY:18};
 const DIVISION_ORDER = ['BASS','ACCOMPANIMENT','MELODY'];
 
 const PHYSICAL_CONTROLS = {
-  1:'Cancel Registers',
-  2:'Cello',
-  3:'Flute',
-  4:'Glockenspiel',
-  5:'Bourdon',
-  6:'Violin',
-  7:'Forte',
-  8:'Triangle',
-  9:'Snare Right',
-  10:'Wood Block Right',
-  11:'Snare Left',
-  12:'Wood Block Left',
-  13:'Cymbal',
-  14:'Bass Drum',
-  15:'Flageolet',
-  16:'Division: Bass',
-  17:'Division: Accompaniment',
-  18:'Division: Melody'
+  1:'Cancel Registers',2:'Cello',3:'Flute',4:'Glockenspiel',5:'Bourdon',6:'Violin',7:'Forte',
+  8:'Triangle',9:'Snare Right',10:'Wood Block Right',11:'Snare Left',12:'Wood Block Left',13:'Cymbal',14:'Bass Drum',
+  15:'Flageolet',16:'Division: Bass',17:'Division: Accompaniment',18:'Division: Melody'
 };
 
-/* Matches REGISTER_CODES in the in-game casing script — Flageolet does
-   have a real control code there (15), it's just outside the 1-7 block. */
 const REGISTER_TRACKER_HOLES = {Cello:2,Flute:3,Glockenspiel:4,Bourdon:5,Violin:6,Forte:7,Flageolet:15};
 
-/* Source percussion notes observed in the supplied test MIDI:
-   34/35 = bass drum family, 38 = snare hit (alternating right/left),
-   49 = cymbal, 76 = wood block (alternating right/left, independent of snare), 81 = triangle. */
 const PERCUSSION_INPUT = {BASS_A:34,BASS_B:35,SNARE:38,CYMBAL:49,WOODBLOCK:76,TRIANGLE:81};
 
 let midi = null;
@@ -207,11 +192,23 @@ const PIANO_KEY_WIDTH = 72;
 const PIANO_KEY_HEIGHT = 16;
 const PIANO_MIN_MIDI = 24;
 const PIANO_MAX_MIDI = 96;
+
+// Playback state
 let playing = false;
-let playWallStart = 0;
-let playCursorStart = 0;
+let startingPlayback = false;
+let playCursorStart = 0;      // song time (s) where playback began
+let playCtxStart = 0;         // audioCtx time that corresponds to playCursorStart
 let audioCtx = null;
-let scheduledAudio = [];
+let masterGain = null;
+let noiseBuffer = null;
+let activeNodes = new Set();
+let schedTimer = null;
+let schedQueue = [];
+let schedIndex = 0;
+const LOOKAHEAD_SEC = 1.2;
+const SCHED_INTERVAL_MS = 40;
+let lastRegKey = null;
+
 let generatedMidi = null;
 let generatedString = '';
 let canvases = [];
@@ -259,11 +256,6 @@ function addRegister(name){
   commitEdit(()=>registrationEvents.push({id:nextId(),time:now,type:'REGISTER',name}));
   setStatus(`${name} ON at ${fmt(now)}.`);
 }
-/* Turns on every register at once, at the current playhead, as a single
-   edit/undo step. Multiple REGISTER events sharing the same millisecond
-   tick is already supported by buildString()/physicalEvents() (they are
-   grouped into one time bucket), so this simply adds every not-yet-active
-   register in one commitEdit batch. */
 function addAllStops(){
   const now=Number(cursorSec.toFixed(3));
   const state=registerStateAt(now);
@@ -285,16 +277,16 @@ function deleteRegistration(id){
   setStatus('Registration event removed.');
 }
 function renderRegisters(){
+  const state=registerStateAt(cursorSec);
+  lastRegKey=[...state].sort().join('|');
   $('register-grid').innerHTML='';
   REGISTER_NAMES.forEach(name=>{
     const b=document.createElement('button'); b.className='register-btn'; b.textContent=name; b.dataset.name=name;
+    b.classList.toggle('active',state.has(name));
     b.onclick=()=>addRegister(name); $('register-grid').appendChild(b);
   });
-  document.querySelectorAll('.register-btn').forEach(b=>{
-    const state=registerStateAt(cursorSec); b.classList.toggle('active',state.has(b.dataset.name));
-  });
-  const state=Array.from(registerStateAt(cursorSec));
-  $('active-registers').textContent=state.length?`Active: ${state.join(', ')}`:'No registers active.';
+  const list=Array.from(state);
+  $('active-registers').textContent=list.length?`Active: ${list.join(', ')}`:'No registers active.';
   $('event-list').innerHTML='';
   if(!registrationEvents.length){$('event-list').innerHTML='<div class="note">No registration events yet.</div>';return;}
   registrationEvents.forEach(e=>{
@@ -304,6 +296,12 @@ function renderRegisters(){
     row.innerHTML=`<div class="event-time">${fmt(e.time)}</div><div class="${cls}">${label}</div><button class="red" style="padding:5px 8px">Remove</button>`;
     row.querySelector('button').onclick=()=>deleteRegistration(e.id); $('event-list').appendChild(row);
   });
+}
+/* Cheap per-frame check: only rebuild the register panel when the set of
+   active registers under the playhead actually changes. */
+function refreshRegistersIfChanged(){
+  const key=[...registerStateAt(cursorSec)].sort().join('|');
+  if(key!==lastRegKey)renderRegisters();
 }
 
 function setStatus(msg){$('status').textContent=msg;}
@@ -329,49 +327,41 @@ function trackLabel(role){return ({BASS:'Bass',ACCOMPANIMENT:'Accompaniment',MEL
 
 function normalizeMidiNotes(){
   if(!midi)return;
-
   midi.tracks.forEach(track=>{
     // Remove sustain pedal and all other MIDI control-change data.
     track.controlChanges = {};
-
     // Force every note to velocity 127 (Tone.js Midi stores velocity normalized 0-1).
-    track.notes.forEach(note=>{
-      note.velocity = 1;
-    });
+    track.notes.forEach(note=>{ note.velocity = 1; });
   });
 }
-    
+
 function openMidiEditor(){
   if(!$('midi-file').files.length)return;
-  try{
-    const file=$('midi-file').files[0];
-    originalMidiBytes=null;
-    file.arrayBuffer().then(buf=>{
-      originalMidiBytes=buf.slice(0);
-      midi=new Midi(buf);
-
-// Normalize the imported MIDI before anything else uses it.
-normalizeMidiNotes();
-
-sourceMode=detectFormat(midi);
-
-tracks=midi.tracks.map((t,index)=>({
-  index,
-  name:t.name||`Track ${index+1}`,
-  channel:Number.isFinite(t.channel)?t.channel:0,
-  notes:t.notes||[],
-  enabled:true,
-  role:roleForTrack(t,index)
-}));
-      durationSec=Math.max(0.1,Number(midi.duration)||Math.max(...tracks.flatMap(t=>t.notes.map(n=>n.time+n.duration)),0));
-      cursorSec=0; registrationEvents=[]; undoStack=[]; redoStack=[]; renderAll();
-      $('editor-panel').classList.remove('hidden'); $('summary-panel').classList.add('hidden'); $('output-panel').classList.add('hidden'); $('roll-panel').classList.add('hidden');
-      $('mode-badge').textContent=sourceMode==='SOURCE'?'Source MIDI':'Organ Output MIDI'; $('mode-badge').classList.add(sourceMode==='SOURCE'?'source':'output');
-      $('format-badge').innerHTML=`<span class="badge ${sourceMode==='SOURCE'?'source':'output'}">Detected: ${sourceMode==='SOURCE'?'SOURCE MIDI':'ORGAN-OUTPUT MIDI'}</span>`;
-      $('time-slider').max=durationSec; $('time-slider').value=0; $('time-slider').disabled=false;
-      setStatus(`Loaded ${file.name}: ${tracks.length} tracks, ${countNotes()} notes, ${fmt(durationSec)} duration.`);
-    });
-  }catch(err){console.error(err);setStatus(`MIDI load failed: ${err.message}`);}
+  if(playing||startingPlayback)stopPlayback();
+  const file=$('midi-file').files[0];
+  originalMidiBytes=null;
+  file.arrayBuffer().then(buf=>{
+    originalMidiBytes=buf.slice(0);
+    midi=new Midi(buf);
+    normalizeMidiNotes();
+    sourceMode=detectFormat(midi);
+    tracks=midi.tracks.map((t,index)=>({
+      index,
+      name:t.name||`Track ${index+1}`,
+      channel:Number.isFinite(t.channel)?t.channel:0,
+      notes:t.notes||[],
+      enabled:true,
+      role:roleForTrack(t,index)
+    }));
+    durationSec=Math.max(0.1,Number(midi.duration)||Math.max(...tracks.flatMap(t=>t.notes.map(n=>n.time+n.duration)),0));
+    cursorSec=0; registrationEvents=[]; undoStack=[]; redoStack=[]; renderAll();
+    $('editor-panel').classList.remove('hidden'); $('summary-panel').classList.add('hidden'); $('output-panel').classList.add('hidden'); $('roll-panel').classList.add('hidden');
+    $('mode-badge').textContent=sourceMode==='SOURCE'?'Source MIDI':'Organ Output MIDI'; $('mode-badge').classList.add(sourceMode==='SOURCE'?'source':'output');
+    $('format-badge').innerHTML=`<span class="badge ${sourceMode==='SOURCE'?'source':'output'}">Detected: ${sourceMode==='SOURCE'?'SOURCE MIDI':'ORGAN-OUTPUT MIDI'}</span>`;
+    $('time-slider').max=durationSec; $('time-slider').value=0; $('time-slider').disabled=false;
+    $('reset-btn').disabled=false;
+    setStatus(`Loaded ${file.name}: ${tracks.length} tracks, ${countNotes()} notes, ${fmt(durationSec)} duration.`);
+  }).catch(err=>{console.error(err);setStatus(`MIDI load failed: ${err.message}`);});
 }
 function countNotes(){return tracks.reduce((s,t)=>s+t.notes.length,0);}
 
@@ -381,8 +371,8 @@ function renderTracks(){
     const row=document.createElement('div'); row.className='track-row'+(t.enabled?'':' off');
     const sel=document.createElement('select'); sel.className='role-select';
     [['BASS','Bass'],['ACCOMPANIMENT','Accompaniment'],['MELODY','Melody'],['PERCUSSION','Percussion'],['REGISTER_OUTPUT','Register Output'],['IGNORE','Ignore']].forEach(([v,l])=>{const o=document.createElement('option');o.value=v;o.textContent=l;o.selected=t.role===v;sel.appendChild(o);});
-    sel.onchange=()=>{t.role=sel.value;renderTimeline();};
-    const cb=document.createElement('input'); cb.type='checkbox'; cb.className='track-enable'; cb.checked=t.enabled; cb.onchange=()=>{t.enabled=cb.checked;row.classList.toggle('off',!t.enabled);renderTimeline();};
+    sel.onchange=()=>{t.role=sel.value;row.children[4].innerHTML=`<span class="badge">${trackLabel(t.role)}</span>`;renderTimeline();if(playing)restartPlaybackAtCursor();};
+    const cb=document.createElement('input'); cb.type='checkbox'; cb.className='track-enable'; cb.checked=t.enabled; cb.onchange=()=>{t.enabled=cb.checked;row.classList.toggle('off',!t.enabled);renderTimeline();if(playing)restartPlaybackAtCursor();};
     row.innerHTML=`<div class="track-num">${i+1}</div><div></div><div><div class="track-name">${escapeHtml(t.name)}</div><div class="track-info">Channel ${t.channel+1} • ${t.notes.length} notes</div></div><div></div><div></div>`;
     row.children[1].replaceWith(cb); row.children[3].replaceWith(sel);
     row.children[4].innerHTML=`<span class="badge">${trackLabel(t.role)}</span>`;
@@ -391,444 +381,114 @@ function renderTracks(){
 }
 function escapeHtml(v){return String(v).replace(/[&<>"']/g,s=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));}
 
-    
+/* ============================================================
+   PIANO ROLL
+   Drawn only when content changes. The playhead is a separate
+   overlay element (#playhead), so playback never redraws this canvas.
+   ============================================================ */
 function renderTimeline(){
+  if(!midi)return;
+  const canvas=$('timeline-canvas');
+  const ctx=canvas.getContext('2d');
+  const pxPerSec=timelineZoom;
+  const keyWidth=PIANO_KEY_WIDTH, keyHeight=PIANO_KEY_HEIGHT;
+  const minMidi=PIANO_MIN_MIDI, maxMidi=PIANO_MAX_MIDI;
+  const noteRows=maxMidi-minMidi+1;
+  const width=Math.max(1400,Math.ceil(durationSec*pxPerSec));
+  const height=noteRows*keyHeight;
 
-    if(!midi)return;
+  canvas.width=keyWidth+width;
+  canvas.height=height;
+  canvas.style.width=`${keyWidth+width}px`;
+  canvas.style.height=`${height}px`;
 
-    const canvas=$('timeline-canvas');
-    const ctx=canvas.getContext('2d');
+  ctx.fillStyle='#101010';
+  ctx.fillRect(0,0,canvas.width,canvas.height);
 
-    const pxPerSec=timelineZoom;
-
-    const keyWidth=PIANO_KEY_WIDTH;
-    const keyHeight=PIANO_KEY_HEIGHT;
-
-    const minMidi=PIANO_MIN_MIDI;
-    const maxMidi=PIANO_MAX_MIDI;
-
-    const noteRows=maxMidi-minMidi+1;
-
-    const width=Math.max(
-        1400,
-        Math.ceil(durationSec*pxPerSec)
-    );
-
-    const height=
-        noteRows*keyHeight;
-
-    canvas.width=
-        keyWidth+width;
-
-    canvas.height=
-        height;
-
-    canvas.style.width=
-        `${keyWidth+width}px`;
-
-    canvas.style.height=
-        `${height}px`;
-
-    ctx.clearRect(
-        0,
-        0,
-        canvas.width,
-        canvas.height
-    );
-
-    /*
-        ============================================================
-        BACKGROUND
-        ============================================================
-    */
-
-    ctx.fillStyle='#101010';
-
-    ctx.fillRect(
-        0,
-        0,
-        canvas.width,
-        canvas.height
-    );
-
-
-    /*
-        ============================================================
-        PIANO KEYS + PITCH GRID
-        ============================================================
-    */
-
-    for(
-        let midiNote=maxMidi;
-        midiNote>=minMidi;
-        midiNote--
-    ){
-
-        const row=
-            maxMidi-midiNote;
-
-        const y=
-            row*keyHeight;
-
-        const pitchClass=
-            midiNote%12;
-
-        const isBlack=
-            [1,3,6,8,10].includes(
-                pitchClass
-            );
-
-
-        /*
-            Note-area background
-        */
-
-        ctx.fillStyle=
-            isBlack
-                ? '#171717'
-                : '#222222';
-
-        ctx.fillRect(
-            keyWidth,
-            y,
-            width,
-            keyHeight
-        );
-
-
-        /*
-            Piano key
-        */
-
-        ctx.fillStyle=
-            isBlack
-                ? '#090909'
-                : '#dddddd';
-
-        ctx.fillRect(
-            0,
-            y,
-            keyWidth,
-            keyHeight
-        );
-
-
-        /*
-            Key separator
-        */
-
-        ctx.strokeStyle=
-            isBlack
-                ? '#303030'
-                : '#444444';
-
-        ctx.lineWidth=1;
-
-        ctx.beginPath();
-
-        ctx.moveTo(
-            0,
-            y+keyHeight
-        );
-
-        ctx.lineTo(
-            canvas.width,
-            y+keyHeight
-        );
-
-        ctx.stroke();
-
-
-        /*
-            MIDI number
-        */
-
-        ctx.fillStyle=
-            isBlack
-                ? '#aaaaaa'
-                : '#111111';
-
-        ctx.font='10px sans-serif';
-
-        ctx.fillText(
-            String(midiNote),
-            7,
-            y+11
-        );
-
-
-        /*
-            Octave label on C notes
-        */
-
-        if(pitchClass===0){
-
-            const octave=
-                Math.floor(midiNote/12)-1;
-
-            ctx.font=
-                'bold 10px sans-serif';
-
-            ctx.fillText(
-                `C${octave}`,
-                34,
-                y+11
-            );
-        }
+  // Piano keys + pitch grid
+  for(let midiNote=maxMidi;midiNote>=minMidi;midiNote--){
+    const y=(maxMidi-midiNote)*keyHeight;
+    const pitchClass=midiNote%12;
+    const isBlack=[1,3,6,8,10].includes(pitchClass);
+    ctx.fillStyle=isBlack?'#171717':'#222222';
+    ctx.fillRect(keyWidth,y,width,keyHeight);
+    ctx.fillStyle=isBlack?'#090909':'#dddddd';
+    ctx.fillRect(0,y,keyWidth,keyHeight);
+    ctx.strokeStyle=isBlack?'#303030':'#444444';
+    ctx.lineWidth=1;
+    ctx.beginPath();ctx.moveTo(0,y+keyHeight);ctx.lineTo(canvas.width,y+keyHeight);ctx.stroke();
+    ctx.fillStyle=isBlack?'#aaaaaa':'#111111';
+    ctx.font='10px sans-serif';
+    ctx.fillText(String(midiNote),7,y+11);
+    if(pitchClass===0){
+      ctx.font='bold 10px sans-serif';
+      ctx.fillText(`C${Math.floor(midiNote/12)-1}`,34,y+11);
     }
+  }
 
+  // Time grid
+  for(let sec=0;sec<=durationSec+0.001;sec+=1){
+    const x=keyWidth+sec*pxPerSec;
+    ctx.strokeStyle=sec%5===0?'#454545':'#292929';
+    ctx.lineWidth=1;
+    ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,height);ctx.stroke();
+    if(sec%5===0){ctx.fillStyle='#888';ctx.font='10px sans-serif';ctx.fillText(fmt(sec),x+3,12);}
+  }
 
-    /*
-        ============================================================
-        TIME GRID
-        ============================================================
-    */
-
-    for(
-        let sec=0;
-        sec<=durationSec+0.001;
-        sec+=1
-    ){
-
-        const x=
-            keyWidth+
-            sec*pxPerSec;
-
-        ctx.strokeStyle=
-            sec%5===0
-                ? '#454545'
-                : '#292929';
-
-        ctx.lineWidth=1;
-
-        ctx.beginPath();
-
-        ctx.moveTo(
-            x,
-            0
-        );
-
-        ctx.lineTo(
-            x,
-            height
-        );
-
-        ctx.stroke();
-
-
-        if(sec%5===0){
-
-            ctx.fillStyle='#888';
-
-            ctx.font=
-                '10px sans-serif';
-
-            ctx.fillText(
-                fmt(sec),
-                x+3,
-                12
-            );
-        }
-    }
-
-
-    /*
-        ============================================================
-        MIDI NOTES
-        ============================================================
-        
-        IMPORTANT:
-        Notes are NOT placed according to their track anymore.
-
-        Their vertical position comes from n.midi.
-
-        This is what makes this a real piano roll.
-        ============================================================
-    */
-
-    tracks.forEach(t=>{
-
-        if(!t.enabled)return;
-
-        t.notes.forEach(n=>{
-
-            if(
-                n.midi<minMidi ||
-                n.midi>maxMidi
-            ){
-                return;
-            }
-
-
-            const x=
-                keyWidth+
-                n.time*pxPerSec;
-
-            const y=
-                (maxMidi-n.midi)*
-                keyHeight;
-
-            const w=
-                Math.max(
-                    2,
-                    n.duration*pxPerSec
-                );
-
-
-            /*
-                Keep the existing role colors.
-            */
-
-            let fill='#4aa3ff';
-
-            if(t.role==='BASS'){
-                fill='#db5962';
-            }
-            else if(t.role==='ACCOMPANIMENT'){
-                fill='#55bd72';
-            }
-            else if(t.role==='PERCUSSION'){
-                fill='#e8a044';
-            }
-            else if(t.role==='REGISTER_OUTPUT'){
-                fill='#b37be8';
-            }
-            else if(t.role==='MELODY'){
-                fill='#4aa3ff';
-            }
-
-
-            /*
-                Don't draw notes outside the visible
-                horizontal region.
-            */
-
-            if(
-                x+w<keyWidth ||
-                x>canvas.width
-            ){
-                return;
-            }
-
-
-            ctx.fillStyle=fill;
-
-            ctx.fillRect(
-                x,
-                y+2,
-                Math.max(1,w),
-                Math.max(
-                    3,
-                    keyHeight-4
-                )
-            );
-
-
-            /*
-                Subtle note border.
-            */
-
-            ctx.strokeStyle=
-                'rgba(255,255,255,.20)';
-
-            ctx.strokeRect(
-                x,
-                y+2,
-                Math.max(1,w),
-                Math.max(
-                    3,
-                    keyHeight-4
-                )
-            );
-        });
+  // Notes (vertical position from pitch)
+  const roleColors={BASS:'#db5962',ACCOMPANIMENT:'#55bd72',PERCUSSION:'#e8a044',REGISTER_OUTPUT:'#b37be8',MELODY:'#4aa3ff'};
+  ctx.strokeStyle='rgba(255,255,255,.20)';
+  tracks.forEach(t=>{
+    if(!t.enabled)return;
+    ctx.fillStyle=roleColors[t.role]||'#4aa3ff';
+    t.notes.forEach(n=>{
+      if(n.midi<minMidi||n.midi>maxMidi)return;
+      const x=keyWidth+n.time*pxPerSec;
+      const y=(maxMidi-n.midi)*keyHeight;
+      const w=Math.max(2,n.duration*pxPerSec);
+      const h=Math.max(3,keyHeight-4);
+      ctx.fillRect(x,y+2,w,h);
+      ctx.strokeRect(x,y+2,w,h);
     });
+  });
 
-
-    /*
-        ============================================================
-        REGISTRATION EVENTS
-        ============================================================
-    */
-
-    registrationEvents.forEach(e=>{
-
-        const x=
-            keyWidth+
-            e.time*pxPerSec;
-
-        ctx.strokeStyle=
-            e.type==='CANCEL'
-                ? '#ff6565'
-                : '#b57bff';
-
-        ctx.lineWidth=2;
-
-        ctx.beginPath();
-
-        ctx.moveTo(
-            x,
-            0
-        );
-
-        ctx.lineTo(
-            x,
-            height
-        );
-
-        ctx.stroke();
-    });
-
-
-    /*
-        ============================================================
-        PLAYHEAD
-        ============================================================
-    */
-
-    const px=
-        keyWidth+
-        cursorSec*pxPerSec;
-
-    ctx.strokeStyle=
-        '#36a7ff';
-
+  // Registration events
+  registrationEvents.forEach(e=>{
+    const x=keyWidth+e.time*pxPerSec;
+    ctx.strokeStyle=e.type==='CANCEL'?'#ff6565':'#b57bff';
     ctx.lineWidth=2;
+    ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,height);ctx.stroke();
+  });
 
-    ctx.beginPath();
-
-    ctx.moveTo(
-        px,
-        0
-    );
-
-    ctx.lineTo(
-        px,
-        height
-    );
-
-    ctx.stroke();
+  $('playhead').style.height=`${height}px`;
+  updatePlayhead(false);
 }
-    
-function seek(sec){cursorSec=clamp(sec,0,durationSec);$('time-slider').value=cursorSec;updateCursorUI();renderRegisters();renderTimeline();if(playing)restartPlaybackAtCursor();}
+
+function updatePlayhead(follow){
+  const ph=$('playhead'); if(!ph)return;
+  const x=PIANO_KEY_WIDTH+cursorSec*timelineZoom;
+  ph.style.transform=`translateX(${x}px)`;
+  if(follow){
+    const sc=$('timeline-scroll');
+    const left=sc.scrollLeft, w=sc.clientWidth;
+    if(x<left+PIANO_KEY_WIDTH||x>left+w-40) sc.scrollLeft=Math.max(0,x-PIANO_KEY_WIDTH-40);
+  }
+}
+
+function seek(sec){
+  cursorSec=clamp(sec,0,durationSec);
+  updateCursorUI(); updatePlayhead(false); refreshRegistersIfChanged();
+  if(playing)restartPlaybackAtCursor();
+}
 function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
-function updateCursorUI(){$('cursor-time').textContent=fmt(cursorSec);$('slider-time').value=fmt(cursorSec);}
+function updateCursorUI(){$('cursor-time').textContent=fmt(cursorSec);$('slider-time').value=fmt(cursorSec);$('time-slider').value=cursorSec;}
 
 $('time-slider').addEventListener('input',e=>seek(Number(e.target.value)));
 $('timeline-canvas').addEventListener('pointerdown',e=>{
-
-    const r=
-        e.currentTarget.getBoundingClientRect();
-
-    const x=
-        e.clientX-
-        r.left-
-        PIANO_KEY_WIDTH;
-
-    if(x<0)return;
-
-    seek(
-        x/timelineZoom
-    );
+  const r=e.currentTarget.getBoundingClientRect();
+  const x=e.clientX-r.left-PIANO_KEY_WIDTH;
+  if(x<0)return;
+  seek(x/timelineZoom);
 });
 
 function midiNotesForPreview(){
@@ -839,37 +499,53 @@ function midiNotesForPreview(){
   }
   tracks.forEach(t=>{
     if(!t.enabled)return;
-    if(t.role==='BASS'){
-      t.notes.forEach(n=>out.push({time:n.time,duration:n.duration,midi:n.midi,kind:'Bass'}));
-    }
+    if(t.role==='BASS') t.notes.forEach(n=>out.push({time:n.time,duration:n.duration,midi:n.midi,kind:'Bass'}));
     else if(t.role==='ACCOMPANIMENT') t.notes.forEach(n=>out.push({time:n.time,duration:n.duration,midi:n.midi,kind:'Accompaniment'}));
     else if(t.role==='PERCUSSION') t.notes.forEach(n=>out.push({time:n.time,duration:n.duration,midi:n.midi,kind:'Percussion',percussion:true}));
     else if(t.role==='MELODY'){
       t.notes.forEach(n=>{
         const state=registerStateAt(n.time);
-        if(!state.size){
-          // No register is engaged for this note: preview it on a
-          // neutral "Melody" voice so playback is never silent just
-          // because no stop has been pulled yet.
-          out.push({time:n.time,duration:n.duration,midi:n.midi,kind:'Melody'});
-        } else {
-          state.forEach(reg=>out.push({time:n.time,duration:n.duration,midi:n.midi,kind:reg}));
-        }
+        if(!state.size) out.push({time:n.time,duration:n.duration,midi:n.midi,kind:'Melody'});
+        else state.forEach(reg=>out.push({time:n.time,duration:n.duration,midi:n.midi,kind:reg}));
       });
     }
   });
   return out;
 }
 
-function stopAllAudio(){
-  scheduledAudio.forEach(x=>{try{x.stop?.()}catch{}try{x.disconnect?.()}catch{}});scheduledAudio=[];
-}
+/* ============================================================
+   PREVIEW AUDIO
+   ============================================================ */
 function ensureAudio(){
-  if(!audioCtx)audioCtx=new (window.AudioContext||window.webkitAudioContext)();
-  if(audioCtx.state==='suspended'){
-    audioCtx.resume().catch(err=>{console.error('Audio resume failed',err);setStatus('Audio could not start automatically — press Play again.');});
+  if(!audioCtx){
+    audioCtx=new (window.AudioContext||window.webkitAudioContext)({latencyHint:'playback'});
+    // Master chain: every voice -> masterGain -> compressor -> speakers.
+    const comp=audioCtx.createDynamicsCompressor();
+    comp.threshold.value=-14; comp.knee.value=12; comp.ratio.value=6; comp.attack.value=0.003; comp.release.value=0.2;
+    masterGain=audioCtx.createGain(); masterGain.gain.value=0.6;
+    masterGain.connect(comp); comp.connect(audioCtx.destination);
+    // One shared 1-second noise buffer for snare/cymbal hits.
+    noiseBuffer=audioCtx.createBuffer(1,audioCtx.sampleRate,audioCtx.sampleRate);
+    const d=noiseBuffer.getChannelData(0); for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;
   }
+  // resume() is called synchronously inside the click/keypress, which is
+  // what browsers require; we then wait for it before reading currentTime.
+  if(audioCtx.state==='running')return Promise.resolve(true);
+  return audioCtx.resume().then(()=>audioCtx.state==='running').catch(err=>{console.error('Audio resume failed',err);return false;});
 }
+
+/* Keep track of live nodes so Stop can silence them, and release each
+   group automatically once its source has finished playing. */
+function trackNodes(src,...others){
+  const group=[src,...others];
+  group.forEach(n=>activeNodes.add(n));
+  src.onended=()=>group.forEach(n=>{try{n.disconnect()}catch{}activeNodes.delete(n);});
+}
+function stopAllAudio(){
+  activeNodes.forEach(x=>{try{x.onended=null}catch{}try{x.stop?.()}catch{}try{x.disconnect?.()}catch{}});
+  activeNodes.clear();
+}
+
 function toneConfig(kind){
   const configs={
     Bass:{type:'triangle',gain:.16,mult:0.5},Accompaniment:{type:'square',gain:.07,mult:1},Melody:{type:'sine',gain:.09,mult:1},
@@ -878,49 +554,97 @@ function toneConfig(kind){
   };return configs[kind]||configs.Accompaniment;
 }
 function midiFreq(n){return 440*Math.pow(2,(n-69)/12);}
-function scheduleTone(note,when,kind,remainingDuration){
-  const c=toneConfig(kind);const osc=audioCtx.createOscillator();const gain=audioCtx.createGain();
-  const f=midiFreq(note.midi)*c.mult;osc.type=c.type;osc.frequency.setValueAtTime(f,when);
-  gain.gain.setValueAtTime(0.0001,when);gain.gain.linearRampToValueAtTime(c.gain,when+0.015);gain.gain.setTargetAtTime(c.gain*0.55,when+0.05,0.07);gain.gain.setTargetAtTime(0.0001,Math.max(when+0.03,when+remainingDuration-0.05),0.05);
-  osc.connect(gain);gain.connect(audioCtx.destination);osc.start(when);osc.stop(when+Math.max(0.06,remainingDuration)+0.1);scheduledAudio.push(osc,gain);
+function scheduleTone(note,when,kind,dur){
+  const c=toneConfig(kind);
+  const osc=audioCtx.createOscillator(), gain=audioCtx.createGain();
+  osc.type=c.type; osc.frequency.setValueAtTime(midiFreq(note.midi)*c.mult,when);
+  const releaseAt=Math.max(when+0.03,when+dur-0.05);
+  gain.gain.setValueAtTime(0.0001,when);
+  gain.gain.linearRampToValueAtTime(c.gain,when+0.015);
+  gain.gain.setTargetAtTime(c.gain*0.55,when+0.05,0.07);
+  gain.gain.setTargetAtTime(0.0001,releaseAt,0.05);
+  osc.connect(gain); gain.connect(masterGain);
+  osc.start(when); osc.stop(releaseAt+0.3);
+  trackNodes(osc,gain);
 }
 function scheduleNoise(when,duration,gainAmount=.12,filterFreq=1800){
-  const buffer=audioCtx.createBuffer(1,Math.ceil(audioCtx.sampleRate*Math.min(1,duration)),audioCtx.sampleRate);const data=buffer.getChannelData(0);for(let i=0;i<data.length;i++)data[i]=Math.random()*2-1;
-  const src=audioCtx.createBufferSource();const g=audioCtx.createGain();const f=audioCtx.createBiquadFilter();f.type='bandpass';f.frequency.value=filterFreq;f.Q.value=.7;
-  g.gain.setValueAtTime(gainAmount,when);g.gain.exponentialRampToValueAtTime(.0001,when+duration);src.buffer=buffer;src.connect(f);f.connect(g);g.connect(audioCtx.destination);src.start(when);src.stop(when+duration+.01);scheduledAudio.push(src,g,f);
+  const src=audioCtx.createBufferSource(), g=audioCtx.createGain(), f=audioCtx.createBiquadFilter();
+  f.type='bandpass'; f.frequency.value=filterFreq; f.Q.value=.7;
+  g.gain.setValueAtTime(gainAmount,when); g.gain.exponentialRampToValueAtTime(.0001,when+duration);
+  src.buffer=noiseBuffer; src.connect(f); f.connect(g); g.connect(masterGain);
+  src.start(when,Math.random()*0.5); src.stop(when+duration+.01);
+  trackNodes(src,g,f);
 }
 function schedulePerc(note,when,duration){
   const n=note.midi;
   if(n===34||n===35||n===36){
-    const o=audioCtx.createOscillator(),g=audioCtx.createGain();o.type='sine';o.frequency.setValueAtTime(105,when);o.frequency.exponentialRampToValueAtTime(45,when+.11);g.gain.setValueAtTime(.28,when);g.gain.exponentialRampToValueAtTime(.0001,when+Math.max(.18,duration));o.connect(g);g.connect(audioCtx.destination);o.start(when);o.stop(when+Math.max(.2,duration));scheduledAudio.push(o,g);
+    const o=audioCtx.createOscillator(),g=audioCtx.createGain();o.type='sine';o.frequency.setValueAtTime(105,when);o.frequency.exponentialRampToValueAtTime(45,when+.11);g.gain.setValueAtTime(.28,when);g.gain.exponentialRampToValueAtTime(.0001,when+Math.max(.18,Math.min(duration,.5)));o.connect(g);g.connect(masterGain);o.start(when);o.stop(when+Math.max(.2,Math.min(duration,.5)));trackNodes(o,g);
   }else if(n===38){scheduleNoise(when,Math.min(.14,Math.max(.07,duration)),.14,2400);}
   else if(n===49){scheduleNoise(when,Math.min(.35,Math.max(.18,duration)),.12,5200);}
-  else if(n===76){const o=audioCtx.createOscillator(),g=audioCtx.createGain();o.type='square';o.frequency.value=580;g.gain.setValueAtTime(.12,when);g.gain.exponentialRampToValueAtTime(.0001,when+.10);o.connect(g);g.connect(audioCtx.destination);o.start(when);o.stop(when+.11);scheduledAudio.push(o,g);}
-  else if(n===81){const o=audioCtx.createOscillator(),g=audioCtx.createGain();o.type='triangle';o.frequency.value=1250;g.gain.setValueAtTime(.11,when);g.gain.exponentialRampToValueAtTime(.0001,when+.16);o.connect(g);g.connect(audioCtx.destination);o.start(when);o.stop(when+.17);scheduledAudio.push(o,g);}
+  else if(n===76){const o=audioCtx.createOscillator(),g=audioCtx.createGain();o.type='square';o.frequency.value=580;g.gain.setValueAtTime(.12,when);g.gain.exponentialRampToValueAtTime(.0001,when+.10);o.connect(g);g.connect(masterGain);o.start(when);o.stop(when+.11);trackNodes(o,g);}
+  else if(n===81){const o=audioCtx.createOscillator(),g=audioCtx.createGain();o.type='triangle';o.frequency.value=1250;g.gain.setValueAtTime(.11,when);g.gain.exponentialRampToValueAtTime(.0001,when+.16);o.connect(g);g.connect(masterGain);o.start(when);o.stop(when+.17);trackNodes(o,g);}
 }
-function startPlayback(){
-  if(playing)return; if(!midi)return; ensureAudio(); stopAllAudio();playing=true;playWallStart=performance.now();playCursorStart=cursorSec;updatePlayButtons();
-  const start=cursorSec;const now=audioCtx.currentTime+.05;
-  const previewNotes=midiNotesForPreview();
-  let scheduledCount=0, failedCount=0;
-  previewNotes.forEach(n=>{
+
+function songTimeNow(){return playCursorStart+Math.max(0,audioCtx.currentTime-playCtxStart);}
+
+/* Look-ahead scheduler: turns only the next LOOKAHEAD_SEC of notes into
+   audio nodes, and is called again every SCHED_INTERVAL_MS. */
+function scheduleAhead(){
+  if(!playing)return;
+  const ctxNow=audioCtx.currentTime;
+  const horizon=songTimeNow()+LOOKAHEAD_SEC;
+  while(schedIndex<schedQueue.length&&schedQueue[schedIndex].time<horizon){
+    const n=schedQueue[schedIndex++];
     try{
-      const end=n.time+n.duration;if(end<start)return;const noteStart=Math.max(n.time,start);const d=end-noteStart;const when=now+(noteStart-start);if(d<=0)return;
+      const noteStart=Math.max(n.time,playCursorStart);
+      let when=playCtxStart+(noteStart-playCursorStart);
+      let d=n.time+n.duration-noteStart;
+      if(when<ctxNow){
+        // We fell behind (e.g. tab was in the background). Skip late drum
+        // hits; start late tones now but keep their original end time.
+        if(n.percussion)continue;
+        d-=ctxNow-when; when=ctxNow;
+      }
+      if(d<=0)continue;
       if(n.percussion)schedulePerc(n,when,d);else scheduleTone(n,when,n.kind,d);
-      scheduledCount++;
-    }catch(err){
-      // A single malformed note should never silence the whole playback —
-      // log it and keep scheduling the rest.
-      failedCount++; console.error('Failed to schedule note for playback',n,err);
-    }
+    }catch(err){console.error('Failed to schedule note for playback',n,err);}
+  }
+}
+function stopScheduler(){if(schedTimer){clearInterval(schedTimer);schedTimer=null;}}
+
+function startPlayback(){
+  if(playing||startingPlayback||!midi)return;
+  startingPlayback=true;
+  ensureAudio().then(ok=>{
+    startingPlayback=false;
+    if(!ok){setStatus('The browser blocked audio. Click Play again.');return;}
+    stopScheduler(); stopAllAudio();
+    const start=cursorSec;
+    schedQueue=midiNotesForPreview().filter(n=>n.time+n.duration>start).sort((a,b)=>a.time-b.time);
+    schedIndex=0;
+    playCursorStart=start;
+    playCtxStart=audioCtx.currentTime+0.1;
+    playing=true; updatePlayButtons();
+    if(!schedQueue.length)setStatus('Nothing to play from here (no enabled notes ahead of the playhead).');
+    scheduleAhead();
+    schedTimer=setInterval(scheduleAhead,SCHED_INTERVAL_MS);
+    requestAnimationFrame(playLoop);
   });
-  if(!scheduledCount) setStatus(failedCount?`Playback: ${failedCount} note(s) failed to schedule and nothing else was audible in this range.`:'Nothing to play in the current view (no enabled notes ahead of the playhead).');
+}
+function playLoop(){
+  if(!playing)return;
+  cursorSec=songTimeNow();
+  if(cursorSec>=durationSec){cursorSec=durationSec;endPlayback();return;}
+  updateCursorUI(); updatePlayhead(true); refreshRegistersIfChanged();
   requestAnimationFrame(playLoop);
 }
-function playLoop(){if(!playing)return;const elapsed=(performance.now()-playWallStart)/1000;cursorSec=playCursorStart+elapsed;if(cursorSec>=durationSec){cursorSec=durationSec;playing=false;stopAllAudio();updatePlayButtons();updateCursorUI();renderRegisters();renderTimeline();return;}updateCursorUI();renderRegisters();renderTimeline();requestAnimationFrame(playLoop);}
-function pausePlayback(){if(!playing)return;const elapsed=(performance.now()-playWallStart)/1000;cursorSec=clamp(playCursorStart+elapsed,0,durationSec);playing=false;stopAllAudio();updatePlayButtons();updateCursorUI();renderRegisters();renderTimeline();}
-function restartPlaybackAtCursor(){if(!playing)return;playing=false;stopAllAudio();startPlayback();}
-function stopPlayback(){playing=false;stopAllAudio();cursorSec=0;updatePlayButtons();updateCursorUI();renderRegisters();renderTimeline();}
+function endPlayback(){
+  playing=false; stopScheduler(); stopAllAudio(); updatePlayButtons();
+  updateCursorUI(); updatePlayhead(false); refreshRegistersIfChanged();
+}
+function pausePlayback(){if(!playing)return;cursorSec=clamp(songTimeNow(),0,durationSec);endPlayback();}
+function restartPlaybackAtCursor(){if(!playing)return;playing=false;stopScheduler();stopAllAudio();startPlayback();}
+function stopPlayback(){playing=false;stopScheduler();stopAllAudio();cursorSec=0;updatePlayButtons();updateCursorUI();updatePlayhead(true);refreshRegistersIfChanged();}
 function updatePlayButtons(){$('play-btn').disabled=playing;$('pause-btn').disabled=!playing;$('stop-btn').disabled=!playing;}
 
 /* ============================================================
@@ -935,13 +659,6 @@ function percussionHoles(midiNote){
   if(midiNote===PERCUSSION_INPUT.TRIANGLE)return [8];
   return [];
 }
-/* Returns two lists:
-   - plainSpans: register (1-7,15) and percussion (8-14) pulses, exactly as
-     before — these are simple hole numbers with no division context.
-   - noteSpans: Bass/Accompaniment/Melody notes, each tagged with its raw
-     MIDI pitch (`hole`) AND its division, since the in-game parser needs
-     a 16/17/18 marker in front of the note code to know which activeNotes
-     table (and therefore which physical ranks) it applies to. */
 function physicalEvents(){
   const plainSpans=[];const noteSpans=[];let ignored=0;alternatingSnareSide=0;alternatingWoodblockSide=0;
   registrationEvents.forEach(e=>{
@@ -967,8 +684,6 @@ function physicalEvents(){
       if(t.role==='BASS'||t.role==='ACCOMPANIMENT'){
         t.notes.forEach(n=>addNote(t.role,n));
       }else if(t.role==='REGISTER_OUTPUT'){
-        // Output MIDI has melody notes split by register track; they all
-        // map back to the same raw pitch under the Melody division.
         t.notes.forEach(n=>addNote('MELODY',n));
       }else if(t.role==='PERCUSSION'){
         t.notes.forEach(n=>{const holes=percussionHoles(n.midi);if(!holes.length){ignored++;return;}holes.forEach(h=>plainSpans.push({hole:h,start:n.time,end:n.time+PERCUSSION_PULSE_MS/1000,type:'PERCUSSION'}));});
@@ -1015,8 +730,6 @@ function buildGeneratedMidi(){
     tracks.forEach(t=>{if(!t.enabled)return;const target=OUTPUT_TRACKS.find(x=>x.toLowerCase()===t.name.toLowerCase());if(!target)return;t.notes.forEach(n=>tracksOut[target].addNote({midi:n.midi,time:n.time,duration:n.duration,velocity:FIXED_VELOCITY/127}));});
     return out;
   }
-  // Cello is historically a bass/tenor stop on a fairground organ (it
-  // doubles the Bass line, like Forte can), not a melody stop.
   const BASS_DOUBLING_REGISTERS=['Forte','Cello'];
   const MELODY_EXCLUDED_REGISTERS=new Set(['Cello']);
   tracks.forEach(t=>{
@@ -1033,7 +746,6 @@ function buildGeneratedMidi(){
     else if(t.role==='MELODY')t.notes.forEach(n=>activeRegistersForMelodyNote(n.time).forEach(reg=>{if(!MELODY_EXCLUDED_REGISTERS.has(reg))tracksOut[reg].addNote({midi:n.midi,time:n.time,duration:n.duration,velocity:FIXED_VELOCITY/127});}));
   });
   return out;
-
 }
 
 function renderRoll(spans){
@@ -1074,9 +786,9 @@ function downloadBlob(blob,name){const url=URL.createObjectURL(blob);const a=doc
 
 $('midi-file').addEventListener('change',()=>{const f=$('midi-file').files[0];$('open-btn').disabled=!f;if(f&&!$('file-name').value.trim())$('file-name').value=safeName(f.name);});
 $('open-btn').onclick=openMidiEditor;
-$('reset-btn').onclick=()=>{registrationEvents=[];undoStack=[];redoStack=[];cursorSec=0;renderAll();updateHistoryButtons();};
-$('all-on-btn').onclick=()=>{tracks.forEach(t=>t.enabled=true);renderTracks();renderTimeline();};
-$('all-off-btn').onclick=()=>{tracks.forEach(t=>t.enabled=false);renderTracks();renderTimeline();};
+$('reset-btn').onclick=()=>{if(playing)stopPlayback();registrationEvents=[];undoStack=[];redoStack=[];cursorSec=0;renderAll();updateHistoryButtons();};
+$('all-on-btn').onclick=()=>{tracks.forEach(t=>t.enabled=true);renderTracks();renderTimeline();if(playing)restartPlaybackAtCursor();};
+$('all-off-btn').onclick=()=>{tracks.forEach(t=>t.enabled=false);renderTracks();renderTimeline();if(playing)restartPlaybackAtCursor();};
 $('play-btn').onclick=startPlayback;$('pause-btn').onclick=pausePlayback;$('stop-btn').onclick=stopPlayback;
 $('undo-btn').onclick=undo;$('redo-btn').onclick=redo;
 $('cancel-registers').onclick=addCancel;$('all-stops-btn').onclick=addAllStops;$('generate-btn').onclick=generateOutputs;
@@ -1089,7 +801,6 @@ window.addEventListener('resize',()=>{if(midi)renderTimeline();});
 window.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){e.preventDefault();e.shiftKey?redo():undo();}else if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='y'){e.preventDefault();redo();}else if(e.code==='Space'&&!e.target.matches('input,textarea,select')){e.preventDefault();playing?pausePlayback():startPlayback();}});
 
 function renderAll(){if(!midi)return;renderTracks();renderRegisters();updateCursorUI();updateHistoryButtons();renderTimeline();}
-
 </script>
 </body>
 </html>
