@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Fairground Organ MIDI Compiler v3.1</title>
+<title>Fairground Organ MIDI Compiler v3.2</title>
 <script src="https://unpkg.com/@tonejs/midi"></script>
 <style>
 :root{--bg:#171717;--panel:#242424;--panel2:#1c1c1c;--border:#3d3d3d;--text:#eee;--muted:#aaa;--blue:#1677d2;--green:#2e9f56;--red:#b83b3b;--orange:#c98721;--timeline:#111;--grid:#2d2d2d;--playhead:#32a5ff;--paper:#fbf7f0}
@@ -29,6 +29,8 @@ input[type=text]{min-width:240px}.btns{display:flex;gap:8px;flex-wrap:wrap}butto
 .events{margin-top:14px;border-top:1px solid #333;padding-top:12px}.event-list{max-height:240px;overflow:auto;display:flex;flex-direction:column;gap:6px}.event-row{display:grid;grid-template-columns:90px 1fr auto;gap:8px;align-items:center;background:#1a1a1a;border:1px solid #333;padding:7px;border-radius:5px}.event-time{font-family:monospace;color:#bbb}.event-add{color:#76d78a}.event-cancel{color:#ff7e7e}.event-flageolet{color:#c6a3ff}
 .output-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}@media(max-width:900px){.output-grid{grid-template-columns:1fr}}.output-box{background:#151515;border:1px solid #343434;border-radius:7px;padding:12px}.output-box textarea{width:100%;height:220px;resize:vertical;background:#0d0d0d;color:#9dffb5;border:1px solid #333;border-radius:5px;padding:9px;font-family:"Courier New",monospace;font-size:11px}
 .roll-container{display:flex;flex-direction:column;align-items:center;gap:8px}.roll-wrap{width:100%;overflow:auto;text-align:center}.roll-wrap canvas{max-width:100%;height:auto;border:1px solid #444;background:var(--paper);box-shadow:0 12px 30px rgba(0,0,0,.35)}.page-label{font-size:12px;color:#999;margin-bottom:12px}
+.roll-layout{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.roll-layout span{font-size:12px;border-radius:4px;padding:5px 8px;border:1px solid #444;background:#1a1a1a;color:#ddd}
+.roll-layout .sec-CONTROL{border-color:#777}.roll-layout .sec-BASS{border-color:#db5962}.roll-layout .sec-ACCOMPANIMENT{border-color:#55bd72}.roll-layout .sec-MELODY{border-color:#4aa3ff}
 .stats{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}@media(max-width:800px){.stats{grid-template-columns:repeat(2,1fr)}}.stat{background:#1a1a1a;border:1px solid #333;border-radius:5px;padding:9px}.stat label{font-size:10px;color:#777}.stat strong{display:block;font-size:18px;margin-top:2px}
 .note{font-size:11px;color:#8c8c8c;margin-top:8px}.danger-note{color:#e69b9b}.success-note{color:#94dda6}.hidden{display:none!important}
 </style>
@@ -36,8 +38,8 @@ input[type=text]{min-width:240px}.btns{display:flex;gap:8px;flex-wrap:wrap}butto
 <body>
 <div class="container">
     <div class="panel">
-        <h1>Fairground Organ MIDI Compiler v3.1</h1>
-        <p style="margin:0">MIDI editor + registration timeline + 101-hole tracker roll + organ string data + 10-track organ MIDI.</p>
+        <h1>Fairground Organ MIDI Compiler v3.2</h1>
+        <p style="margin:0">MIDI editor + registration timeline + divided tracker roll + organ string data + 10-track organ MIDI.</p>
         <div class="controls" style="margin-top:12px">
             <div class="field"><label>MIDI FILE</label><input id="midi-file" type="file" accept=".mid,.midi"></div>
             <div class="field"><label>OUTPUT NAME</label><input id="file-name" type="text" placeholder="Song name"></div>
@@ -108,16 +110,17 @@ input[type=text]{min-width:240px}.btns{display:flex;gap:8px;flex-wrap:wrap}butto
     </div>
 
     <div id="roll-panel" class="panel hidden">
-        <h2>Paper Roll (Roblox-compatible codes)</h2>
-        <p style="margin-top:0">Codes 1–7 and 15 are register stops, 8–14 are percussion, 16/17/18 are Bass/Accompaniment/Melody division markers, and 31–96 are raw MIDI pitch numbers (matching the in-game pipe object names) — not tracker-hole positions. Roll runs top-to-bottom and is mirrored horizontally.</p>
-        <button id="download-roll" class="green">Download All Roll Pages</button>
+        <h2>Paper Roll</h2>
+        <p style="margin-top:0">The roll is split into four separate sections: control holes (registers 1–7 and 15, percussion 8–14, division markers 16–18), then the Bass, Accompaniment and Melody pipe ranges, each with its own columns so the same MIDI pitch in two divisions no longer lands on the same hole. The roll runs top-to-bottom and is mirrored horizontally, so the sections read right-to-left on the image.</p>
+        <div id="roll-layout" class="roll-layout"></div>
+        <button id="download-roll" class="green" style="margin-top:12px">Download All Roll Pages</button>
         <div id="roll-container" class="roll-container" style="margin-top:14px"></div>
     </div>
 </div>
 
 <script>
 /* ============================================================
-   FAIRGROUND ORGAN COMPILER V3.1
+   FAIRGROUND ORGAN COMPILER V3.2
    - Source MIDI: Ch1 Bass, Ch2 Accompaniment, Ch3 Melody, Ch10 Percussion.
    - Output MIDI: Ch1 Bass, Ch2 Flute, Ch3 Cello, Ch4 Accompaniment,
      Ch5 Forte, Ch6 Violin, Ch7 Flageolet, Ch8 Bourdon, Ch9 Glockenspiel,
@@ -132,24 +135,32 @@ input[type=text]{min-width:240px}.btns{display:flex;gap:8px;flex-wrap:wrap}butto
        31-96    = raw MIDI pitch number, interpreted under whichever division
                   marker most recently appeared IN THE SAME TICK.
 
+   v3.2 PAPER ROLL CHANGES
+   - The roll is no longer one fused 96-hole range. It is laid out as
+     separate sections: Control | Bass | Accompaniment | Melody, with an
+     empty gap between each. A Bass C3 and a Melody C3 now punch in
+     different columns, matching the three separate pipe ranks.
+   - Each division's range is taken from the song (lowest to highest note
+     it actually uses) unless a fixed range is set in DIVISION_PIPE_RANGES.
+   - The canvas widens automatically if the sections need more room.
+
    v3.1 PLAYBACK CHANGES
-   - Preview audio uses a look-ahead scheduler: only notes starting in the
-     next ~1.2 s are turned into audio nodes, topped up every 40 ms. The old
-     version built every note of the whole song at once (thousands of nodes),
-     which froze the page and overloaded the audio engine.
-   - All voices go through one master gain + compressor (no clipping).
-   - One shared noise buffer for snare/cymbal instead of one per hit.
-   - Finished nodes are disconnected and released automatically.
-   - Playhead is a lightweight overlay; the piano roll is only redrawn when
-     notes/registers/tracks change, not on every animation frame.
-   - The playhead follows the audio clock, so picture and sound stay in sync.
+   - Look-ahead audio scheduler, master gain + compressor, shared noise
+     buffer, automatic node cleanup, overlay playhead synced to audio clock.
    ============================================================ */
 
-const CANVAS_WIDTH = 1024;
+const CANVAS_WIDTH = 1024;          // minimum roll width; grows if needed
 const CANVAS_HEIGHT = 4096;
-const TRACK_COUNT = 96;
 const TRACK_WIDTH = 8;
-const MARGIN_X = (CANVAS_WIDTH - TRACK_COUNT * TRACK_WIDTH) / 2;
+const ROLL_MARGIN_X = 32;           // minimum paper edge on each side
+const ROLL_SECTION_GAP = 3;         // empty columns between roll sections
+const CONTROL_HOLE_RANGE = [1, 18];
+/* Fixed pipe ranges per division, as [lowestMidi, highestMidi].
+   null = use the lowest..highest note that division uses in this song.
+   Example for a physical organ: {BASS:[36,55], ACCOMPANIMENT:[48,72], MELODY:[60,96]} */
+const DIVISION_PIPE_RANGES = {BASS:null, ACCOMPANIMENT:null, MELODY:null};
+const ROLL_SECTION_LINE = {CONTROL:'rgba(120,120,120,.55)',BASS:'rgba(219,89,98,.55)',ACCOMPANIMENT:'rgba(85,189,114,.55)',MELODY:'rgba(74,163,255,.55)'};
+
 const ROLL_SPEED = 256;
 const REGISTER_PULSE_MS = 80;
 const PERCUSSION_PULSE_MS = 80;
@@ -196,8 +207,8 @@ const PIANO_MAX_MIDI = 96;
 // Playback state
 let playing = false;
 let startingPlayback = false;
-let playCursorStart = 0;      // song time (s) where playback began
-let playCtxStart = 0;         // audioCtx time that corresponds to playCursorStart
+let playCursorStart = 0;
+let playCtxStart = 0;
 let audioCtx = null;
 let masterGain = null;
 let noiseBuffer = null;
@@ -297,8 +308,6 @@ function renderRegisters(){
     row.querySelector('button').onclick=()=>deleteRegistration(e.id); $('event-list').appendChild(row);
   });
 }
-/* Cheap per-frame check: only rebuild the register panel when the set of
-   active registers under the playhead actually changes. */
 function refreshRegistersIfChanged(){
   const key=[...registerStateAt(cursorSec)].sort().join('|');
   if(key!==lastRegKey)renderRegisters();
@@ -323,14 +332,12 @@ function roleForTrack(track,index){
   if(REGISTER_NAMES.includes(match))return 'REGISTER_OUTPUT';
   return 'IGNORE';
 }
-function trackLabel(role){return ({BASS:'Bass',ACCOMPANIMENT:'Accompaniment',MELODY:'Melody',PERCUSSION:'Percussion',REGISTER_OUTPUT:'Register Output',IGNORE:'Ignore'})[role]||role;}
+function trackLabel(role){return ({BASS:'Bass',ACCOMPANIMENT:'Accompaniment',MELODY:'Melody',PERCUSSION:'Percussion',REGISTER_OUTPUT:'Register Output',IGNORE:'Ignore',CONTROL:'Control'})[role]||role;}
 
 function normalizeMidiNotes(){
   if(!midi)return;
   midi.tracks.forEach(track=>{
-    // Remove sustain pedal and all other MIDI control-change data.
     track.controlChanges = {};
-    // Force every note to velocity 127 (Tone.js Midi stores velocity normalized 0-1).
     track.notes.forEach(note=>{ note.velocity = 1; });
   });
 }
@@ -353,7 +360,7 @@ function openMidiEditor(){
       enabled:true,
       role:roleForTrack(t,index)
     }));
-    durationSec=Math.max(0.1,Number(midi.duration)||Math.max(...tracks.flatMap(t=>t.notes.map(n=>n.time+n.duration)),0));
+    durationSec=Math.max(0.1,Number(midi.duration)||tracks.reduce((m,t)=>t.notes.reduce((mm,n)=>Math.max(mm,n.time+n.duration),m),0));
     cursorSec=0; registrationEvents=[]; undoStack=[]; redoStack=[]; renderAll();
     $('editor-panel').classList.remove('hidden'); $('summary-panel').classList.add('hidden'); $('output-panel').classList.add('hidden'); $('roll-panel').classList.add('hidden');
     $('mode-badge').textContent=sourceMode==='SOURCE'?'Source MIDI':'Organ Output MIDI'; $('mode-badge').classList.add(sourceMode==='SOURCE'?'source':'output');
@@ -382,9 +389,7 @@ function renderTracks(){
 function escapeHtml(v){return String(v).replace(/[&<>"']/g,s=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));}
 
 /* ============================================================
-   PIANO ROLL
-   Drawn only when content changes. The playhead is a separate
-   overlay element (#playhead), so playback never redraws this canvas.
+   PIANO ROLL (editor timeline)
    ============================================================ */
 function renderTimeline(){
   if(!midi)return;
@@ -405,7 +410,6 @@ function renderTimeline(){
   ctx.fillStyle='#101010';
   ctx.fillRect(0,0,canvas.width,canvas.height);
 
-  // Piano keys + pitch grid
   for(let midiNote=maxMidi;midiNote>=minMidi;midiNote--){
     const y=(maxMidi-midiNote)*keyHeight;
     const pitchClass=midiNote%12;
@@ -426,7 +430,6 @@ function renderTimeline(){
     }
   }
 
-  // Time grid
   for(let sec=0;sec<=durationSec+0.001;sec+=1){
     const x=keyWidth+sec*pxPerSec;
     ctx.strokeStyle=sec%5===0?'#454545':'#292929';
@@ -435,7 +438,6 @@ function renderTimeline(){
     if(sec%5===0){ctx.fillStyle='#888';ctx.font='10px sans-serif';ctx.fillText(fmt(sec),x+3,12);}
   }
 
-  // Notes (vertical position from pitch)
   const roleColors={BASS:'#db5962',ACCOMPANIMENT:'#55bd72',PERCUSSION:'#e8a044',REGISTER_OUTPUT:'#b37be8',MELODY:'#4aa3ff'};
   ctx.strokeStyle='rgba(255,255,255,.20)';
   tracks.forEach(t=>{
@@ -452,7 +454,6 @@ function renderTimeline(){
     });
   });
 
-  // Registration events
   registrationEvents.forEach(e=>{
     const x=keyWidth+e.time*pxPerSec;
     ctx.strokeStyle=e.type==='CANCEL'?'#ff6565':'#b57bff';
@@ -519,23 +520,17 @@ function midiNotesForPreview(){
 function ensureAudio(){
   if(!audioCtx){
     audioCtx=new (window.AudioContext||window.webkitAudioContext)({latencyHint:'playback'});
-    // Master chain: every voice -> masterGain -> compressor -> speakers.
     const comp=audioCtx.createDynamicsCompressor();
     comp.threshold.value=-14; comp.knee.value=12; comp.ratio.value=6; comp.attack.value=0.003; comp.release.value=0.2;
     masterGain=audioCtx.createGain(); masterGain.gain.value=0.6;
     masterGain.connect(comp); comp.connect(audioCtx.destination);
-    // One shared 1-second noise buffer for snare/cymbal hits.
     noiseBuffer=audioCtx.createBuffer(1,audioCtx.sampleRate,audioCtx.sampleRate);
     const d=noiseBuffer.getChannelData(0); for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;
   }
-  // resume() is called synchronously inside the click/keypress, which is
-  // what browsers require; we then wait for it before reading currentTime.
   if(audioCtx.state==='running')return Promise.resolve(true);
   return audioCtx.resume().then(()=>audioCtx.state==='running').catch(err=>{console.error('Audio resume failed',err);return false;});
 }
 
-/* Keep track of live nodes so Stop can silence them, and release each
-   group automatically once its source has finished playing. */
 function trackNodes(src,...others){
   const group=[src,...others];
   group.forEach(n=>activeNodes.add(n));
@@ -587,8 +582,6 @@ function schedulePerc(note,when,duration){
 
 function songTimeNow(){return playCursorStart+Math.max(0,audioCtx.currentTime-playCtxStart);}
 
-/* Look-ahead scheduler: turns only the next LOOKAHEAD_SEC of notes into
-   audio nodes, and is called again every SCHED_INTERVAL_MS. */
 function scheduleAhead(){
   if(!playing)return;
   const ctxNow=audioCtx.currentTime;
@@ -600,8 +593,6 @@ function scheduleAhead(){
       let when=playCtxStart+(noteStart-playCursorStart);
       let d=n.time+n.duration-noteStart;
       if(when<ctxNow){
-        // We fell behind (e.g. tab was in the background). Skip late drum
-        // hits; start late tones now but keep their original end time.
         if(n.percussion)continue;
         d-=ctxNow-when; when=ctxNow;
       }
@@ -699,8 +690,9 @@ const sortTickValues=(a,b)=>{if(a<0&&b>=0)return -1;if(a>=0&&b<0)return 1;return
 
 function buildString(plainSpans,noteSpans){
   if(!plainSpans.length&&!noteSpans.length)return '';
-  const allStarts=[...plainSpans.map(s=>s.start),...noteSpans.map(s=>s.start)];
-  const first=Math.min(...allStarts);
+  const first=Math.min(
+    plainSpans.reduce((m,s)=>Math.min(m,s.start),Infinity),
+    noteSpans.reduce((m,s)=>Math.min(m,s.start),Infinity));
   const ticks=new Map();
   const bucket=t=>{const key=Math.round((t-first)*1000);if(!ticks.has(key))ticks.set(key,{plain:[],BASS:[],ACCOMPANIMENT:[],MELODY:[]});return ticks.get(key);};
   plainSpans.forEach(s=>{bucket(s.start).plain.push(s.hole);bucket(s.end).plain.push(-s.hole);});
@@ -748,36 +740,107 @@ function buildGeneratedMidi(){
   return out;
 }
 
-function renderRoll(spans){
-  const container=$('roll-container');container.innerHTML='';canvases=[];if(!spans.length)return 0;
-  const first=Math.min(...spans.map(s=>s.start));const normalized=spans.map(s=>({hole:s.hole,start:(s.start-first)*ROLL_SPEED,end:(s.end-first)*ROLL_SPEED}));
-  const total=Math.max(...normalized.map(s=>s.end))+120;const pages=Math.max(1,Math.ceil(total/CANVAS_HEIGHT));
+/* ============================================================
+   PAPER ROLL — divided layout
+   Control | gap | Bass | gap | Accompaniment | gap | Melody
+   Each section owns its own columns, so equal MIDI pitches in
+   different divisions never share a hole.
+   ============================================================ */
+function buildRollLayout(noteSpans){
+  const sections=[{key:'CONTROL',lo:CONTROL_HOLE_RANGE[0],hi:CONTROL_HOLE_RANGE[1]}];
+  DIVISION_ORDER.forEach(div=>{
+    const fixed=DIVISION_PIPE_RANGES[div];
+    let lo,hi;
+    if(Array.isArray(fixed)){lo=fixed[0];hi=fixed[1];}
+    else{
+      lo=Infinity;hi=-Infinity;
+      noteSpans.forEach(s=>{if(s.division===div){if(s.hole<lo)lo=s.hole;if(s.hole>hi)hi=s.hole;}});
+      if(lo===Infinity)return; // division unused in this song: no columns
+    }
+    sections.push({key:div,lo,hi});
+  });
+  let col=0;
+  sections.forEach((s,i)=>{if(i>0)col+=ROLL_SECTION_GAP;s.offset=col;s.cols=s.hi-s.lo+1;col+=s.cols;});
+  const width=Math.max(CANVAS_WIDTH,ROLL_MARGIN_X*2+col*TRACK_WIDTH);
+  const marginX=Math.round((width-col*TRACK_WIDTH)/2);
+  const byKey=Object.fromEntries(sections.map(s=>[s.key,s]));
+  return {sections,totalCols:col,width,marginX,byKey};
+}
+function rollColumn(layout,span){
+  const sec=layout.byKey[span.division||'CONTROL'];
+  if(!sec||span.hole<sec.lo||span.hole>sec.hi)return null;
+  return sec.offset+(span.hole-sec.lo);
+}
+
+function renderRoll(plainSpans,noteSpans){
+  const container=$('roll-container');container.innerHTML='';canvases=[];
+  const layout=buildRollLayout(noteSpans);
+  const all=[...plainSpans,...noteSpans];
+  if(!all.length)return {pages:0,layout,skipped:0};
+
+  let skipped=0;
+  const first=all.reduce((m,s)=>Math.min(m,s.start),Infinity);
+  const normalized=[];
+  all.forEach(s=>{
+    const col=rollColumn(layout,s);
+    if(col===null){skipped++;return;}
+    normalized.push({col,start:(s.start-first)*ROLL_SPEED,end:(s.end-first)*ROLL_SPEED});
+  });
+  const total=normalized.reduce((m,s)=>Math.max(m,s.end),0)+120;
+  const pages=Math.max(1,Math.ceil(total/CANVAS_HEIGHT));
+  const W=layout.width, M=layout.marginX;
+
   for(let page=0;page<pages;page++){
-    const canvas=document.createElement('canvas');canvas.width=CANVAS_WIDTH;canvas.height=CANVAS_HEIGHT;const ctx=canvas.getContext('2d');
-    ctx.save();ctx.translate(CANVAS_WIDTH,0);ctx.scale(-1,1);
-    ctx.fillStyle='#fbf7f0';ctx.fillRect(0,0,CANVAS_WIDTH,CANVAS_HEIGHT);
-    ctx.strokeStyle='rgba(205,185,155,.38)';ctx.lineWidth=1;for(let i=0;i<=TRACK_COUNT;i++){const x=MARGIN_X+i*TRACK_WIDTH;ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,CANVAS_HEIGHT);ctx.stroke();}
+    const canvas=document.createElement('canvas');canvas.width=W;canvas.height=CANVAS_HEIGHT;const ctx=canvas.getContext('2d');
+    ctx.save();ctx.translate(W,0);ctx.scale(-1,1);
+    ctx.fillStyle='#fbf7f0';ctx.fillRect(0,0,W,CANVAS_HEIGHT);
+
+    // Column guides, drawn per section; section edges get a stronger colored line.
+    layout.sections.forEach(sec=>{
+      const x0=M+sec.offset*TRACK_WIDTH;
+      ctx.strokeStyle='rgba(205,185,155,.38)';ctx.lineWidth=1;
+      for(let i=1;i<sec.cols;i++){const x=x0+i*TRACK_WIDTH;ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,CANVAS_HEIGHT);ctx.stroke();}
+      ctx.strokeStyle=ROLL_SECTION_LINE[sec.key]||'rgba(120,120,120,.55)';ctx.lineWidth=2;
+      [x0,x0+sec.cols*TRACK_WIDTH].forEach(x=>{ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,CANVAS_HEIGHT);ctx.stroke();});
+    });
+
     ctx.globalCompositeOperation='destination-out';const ps=page*CANVAS_HEIGHT,pe=ps+CANVAS_HEIGHT;
-    normalized.forEach(s=>{if(s.end<ps||s.start>pe)return;const top=Math.max(0,s.start-ps);let bottom=Math.min(CANVAS_HEIGHT,s.end-ps);if(s.end-ps<=CANVAS_HEIGHT)bottom-=3;let h=bottom-top;if(s.start>=ps)h=Math.max(TRACK_WIDTH,h);if(h<=0)return;const x=MARGIN_X+(s.hole-1)*TRACK_WIDTH+2;drawRound(ctx,x,top,TRACK_WIDTH-4,h);});
+    normalized.forEach(s=>{if(s.end<ps||s.start>pe)return;const top=Math.max(0,s.start-ps);let bottom=Math.min(CANVAS_HEIGHT,s.end-ps);if(s.end-ps<=CANVAS_HEIGHT)bottom-=3;let h=bottom-top;if(s.start>=ps)h=Math.max(TRACK_WIDTH,h);if(h<=0)return;const x=M+s.col*TRACK_WIDTH+2;drawRound(ctx,x,top,TRACK_WIDTH-4,h);});
     ctx.restore();
     const wrap=document.createElement('div');wrap.className='roll-wrap';wrap.appendChild(canvas);container.appendChild(wrap);const label=document.createElement('div');label.className='page-label';label.textContent=`Roll Page ${page+1} of ${pages}`;container.appendChild(label);canvases.push(canvas);
   }
-  return pages;
+  return {pages,layout,skipped};
 }
 function drawRound(ctx,x,y,w,h){ctx.beginPath();if(ctx.roundRect)ctx.roundRect(x,y,w,h,Math.min(w/2,6));else ctx.rect(x,y,w,h);ctx.fill();}
 
+function midiName(n){const names=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];return names[n%12]+(Math.floor(n/12)-1);}
+function renderRollLayoutInfo(layout){
+  const el=$('roll-layout');el.innerHTML='';
+  // Mirrored image: the first section appears on the right, so list right-to-left.
+  layout.sections.forEach(sec=>{
+    const span=document.createElement('span');span.className=`sec-${sec.key}`;
+    span.textContent=sec.key==='CONTROL'
+      ?`Control: holes ${sec.lo}–${sec.hi}`
+      :`${trackLabel(sec.key)}: ${midiName(sec.lo)}–${midiName(sec.hi)} (MIDI ${sec.lo}–${sec.hi}, ${sec.cols} holes)`;
+    el.appendChild(span);
+  });
+}
+
 function generateOutputs(){
   if(!midi)return;
-  const {plainSpans,noteSpans,spans,ignored}=physicalEvents();
+  const {plainSpans,noteSpans,ignored}=physicalEvents();
   generatedString=buildString(plainSpans,noteSpans);
   generatedMidi=buildGeneratedMidi();
   $('string-output').value=generatedString;
-  const pages=renderRoll(spans);
+  const {pages,layout,skipped}=renderRoll(plainSpans,noteSpans);
+  renderRollLayoutInfo(layout);
   $('stat-tracks').textContent=tracks.length;$('stat-notes').textContent=countNotes();$('stat-regs').textContent=registrationEvents.length;$('stat-pages').textContent=pages;$('stat-ignored').textContent=ignored;
   $('summary-panel').classList.remove('hidden');$('output-panel').classList.remove('hidden');$('roll-panel').classList.remove('hidden');
   const flags=[];
   flags.push('String format matches the in-game casing script: codes 1–7/15 are register stops, 8–14 percussion, 16/17/18 are Bass/Accompaniment/Melody division markers, and note values are raw MIDI pitch (31–96) — a division marker is re-sent in every tick where that division has a note change.');
+  flags.push(`Paper roll: ${layout.sections.length} separate sections, ${layout.totalCols} hole columns in total.`);
   if(ignored)flags.push(`${ignored} note(s) fell outside the 31–96 physical pipe range and were skipped.`);
+  if(skipped)flags.push(`${skipped} note(s) fall outside the fixed ranges in DIVISION_PIPE_RANGES and are not punched on the roll.`);
   $('mapping-note').textContent=flags.join(' ');
   setStatus(`Outputs generated: ${pages} paper-roll page(s), ${generatedString.length.toLocaleString()} string characters, 10-track organ MIDI.`);
 }
