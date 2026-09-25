@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Fairground Organ MIDI Compiler v3.4</title>
+<title>Fairground Organ MIDI Compiler v3.5</title>
 <script src="https://unpkg.com/@tonejs/midi"></script>
 <style>
 :root{--bg:#171717;--panel:#242424;--panel2:#1c1c1c;--border:#3d3d3d;--text:#eee;--muted:#aaa;--blue:#1677d2;--green:#2e9f56;--red:#b83b3b;--orange:#c98721;--timeline:#111;--grid:#2d2d2d;--playhead:#32a5ff;--paper:#fbf7f0}
@@ -32,13 +32,14 @@ input[type=text]{min-width:240px}.btns{display:flex;gap:8px;flex-wrap:wrap}butto
 .roll-layout{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.roll-layout span{font-size:12px;border-radius:4px;padding:5px 8px;border:1px solid #444;background:#1a1a1a;color:#ddd}
 .roll-layout .sec-CONTROL{border-color:#777}.roll-layout .sec-BASS{border-color:#db5962}.roll-layout .sec-ACCOMPANIMENT{border-color:#55bd72}.roll-layout .sec-MELODY{border-color:#4aa3ff}
 .stats{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}@media(max-width:800px){.stats{grid-template-columns:repeat(2,1fr)}}.stat{background:#1a1a1a;border:1px solid #333;border-radius:5px;padding:9px}.stat label{font-size:10px;color:#777}.stat strong{display:block;font-size:18px;margin-top:2px}
+.reg-io{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}#import-string-box{margin-bottom:10px}#import-string-text{width:100%;height:120px;resize:vertical;background:#0d0d0d;color:#9dffb5;border:1px solid #333;border-radius:5px;padding:9px;font-family:"Courier New",monospace;font-size:11px;margin-bottom:8px}
 .note{font-size:11px;color:#8c8c8c;margin-top:8px}.danger-note{color:#e69b9b}.success-note{color:#94dda6}.hidden{display:none!important}
 </style>
 </head>
 <body>
 <div class="container">
     <div class="panel">
-        <h1>Fairground Organ MIDI Compiler v3.4</h1>
+        <h1>Fairground Organ MIDI Compiler v3.5</h1>
         <p style="margin:0">MIDI editor + registration timeline + divided tracker roll + organ string data + 10-track organ MIDI.</p>
         <div class="controls" style="margin-top:12px">
             <div class="field"><label>MIDI FILE</label><input id="midi-file" type="file" accept=".mid,.midi"></div>
@@ -85,7 +86,17 @@ input[type=text]{min-width:240px}.btns{display:flex;gap:8px;flex-wrap:wrap}butto
         </div>
 
         <div class="events">
-            <div style="display:flex;justify-content:space-between;align-items:center"><h3>Registration Event History</h3><div class="note">Events are stored separately from source MIDI notes.</div></div>
+            <div style="display:flex;justify-content:space-between;align-items:center"><h3>Registration Event History</h3><div class="note">Registers are autosaved in this browser for each song.</div></div>
+            <div class="reg-io">
+                <button id="import-string-btn" class="orange">Import registers from String Data</button>
+                <button id="save-regs-btn" class="gray">Save registers (.json)</button>
+                <button id="load-regs-btn" class="gray">Load registers (.json)</button>
+                <input id="load-regs-file" type="file" accept=".json,application/json" class="hidden">
+            </div>
+            <div id="import-string-box" class="hidden">
+                <textarea id="import-string-text" placeholder="Paste a previously generated organ string for THIS song here. Its register changes (Cancel, Cello, Flute, ...) will be read back in at the right times."></textarea>
+                <div class="btns"><button id="import-string-go" class="green">Import registers</button><button id="import-string-cancel" class="gray">Cancel</button></div>
+            </div>
             <div id="event-list" class="event-list"></div>
         </div>
 
@@ -134,6 +145,14 @@ input[type=text]{min-width:240px}.btns{display:flex;gap:8px;flex-wrap:wrap}butto
        16/17/18 = Division marker: Bass / Accompaniment / Melody
        31-96    = raw MIDI pitch number, interpreted under whichever division
                   marker most recently appeared IN THE SAME TICK.
+
+   v3.5 REGISTER RECOVERY / SAVING
+   - "Import registers from String Data": paste an old string and every
+     register change (1 Cancel, 2-7, 15) is read back in. Times are aligned
+     using the first note in the string vs. the first note of the loaded MIDI.
+   - Register events autosave in this browser (per song) and are restored
+     automatically when the same MIDI is opened again, even after a reload.
+   - Save / Load registers as a small .json file for backups or other PCs.
 
    v3.4 DUPLICATE NOTE MERGING
    - Identical notes (same division + pitch starting together, e.g. from
@@ -269,10 +288,10 @@ function commitEdit(mutator){
   undoStack.push(cloneRegs());
   redoStack=[];
   mutator();
-  sortRegs(); renderRegisters(); renderTimeline(); updateHistoryButtons();
+  sortRegs(); renderRegisters(); renderTimeline(); updateHistoryButtons(); saveRegsLocal();
 }
-function undo(){if(!undoStack.length)return;redoStack.push(cloneRegs());registrationEvents=undoStack.pop();renderRegisters();renderTimeline();updateHistoryButtons();}
-function redo(){if(!redoStack.length)return;undoStack.push(cloneRegs());registrationEvents=redoStack.pop();renderRegisters();renderTimeline();updateHistoryButtons();}
+function undo(){if(!undoStack.length)return;redoStack.push(cloneRegs());registrationEvents=undoStack.pop();renderRegisters();renderTimeline();updateHistoryButtons();saveRegsLocal();}
+function redo(){if(!redoStack.length)return;undoStack.push(cloneRegs());registrationEvents=redoStack.pop();renderRegisters();renderTimeline();updateHistoryButtons();saveRegsLocal();}
 function updateHistoryButtons(){$('undo-btn').disabled=!undoStack.length;$('redo-btn').disabled=!redoStack.length;}
 function sortRegs(){registrationEvents.sort((a,b)=>a.time-b.time || a.id-b.id);}
 function nextId(){return registrationEvents.reduce((m,e)=>Math.max(m,e.id||0),0)+1;}
@@ -345,6 +364,70 @@ function refreshRegistersIfChanged(){
 
 function setStatus(msg){$('status').textContent=msg;}
 
+/* ---- v3.5: register persistence ---- */
+let currentSongKey=null;
+const REG_CODE_TO_NAME={2:'Cello',3:'Flute',4:'Glockenspiel',5:'Bourdon',6:'Violin',7:'Forte',15:'Flageolet'};
+function regStorageKey(){return currentSongKey?'fairground-organ-registers:'+currentSongKey:null;}
+function serializeRegs(){return registrationEvents.map(e=>e.type==='CANCEL'?{time:e.time,type:'CANCEL'}:{time:e.time,type:'REGISTER',name:e.name});}
+function setRegsFromList(list){
+  let id=0;
+  return list.filter(e=>e&&Number.isFinite(Number(e.time))&&(e.type==='CANCEL'||(e.type==='REGISTER'&&REGISTER_NAMES.includes(e.name))))
+    .map(e=>e.type==='CANCEL'?{id:++id,time:Number(e.time),type:'CANCEL'}:{id:++id,time:Number(e.time),type:'REGISTER',name:e.name});
+}
+function saveRegsLocal(){
+  const key=regStorageKey(); if(!key)return;
+  try{
+    if(registrationEvents.length)localStorage.setItem(key,JSON.stringify(serializeRegs()));
+    else localStorage.removeItem(key);
+  }catch(err){console.warn('Could not autosave registers',err);}
+}
+function loadRegsLocal(){
+  const key=regStorageKey(); if(!key)return [];
+  try{const raw=localStorage.getItem(key);return raw?setRegsFromList(JSON.parse(raw)):[];}
+  catch(err){console.warn('Could not read autosaved registers',err);return [];}
+}
+
+/* Read register changes back out of a generated organ string.
+   Chunk format: "<delta ms>,<values...>" joined by "|". Control values
+   (registers/percussion) come before any division marker in a chunk; after
+   a marker (16/17/18) the values are notes. The string's time 0 is the first
+   event of the song, so times are aligned via the first NOTE in the string
+   and the first note of the currently loaded MIDI. */
+function registersFromString(str){
+  const chunks=String(str||'').trim().split('|');
+  let abs=0, firstNoteMs=null; const found=[];
+  for(const chunk of chunks){
+    const vals=chunk.split(',').map(v=>Number(v.trim())).filter(v=>Number.isFinite(v));
+    if(vals.length<2)continue;
+    abs+=Math.max(0,vals[0]);
+    let inDivision=false;
+    for(const v of vals.slice(1)){
+      if(v>=16&&v<=18){inDivision=true;continue;}
+      if(inDivision){if(v>=31&&firstNoteMs===null)firstNoteMs=abs;continue;}
+      if(v===1)found.push({ms:abs,type:'CANCEL'});
+      else if(REG_CODE_TO_NAME[v])found.push({ms:abs,type:'REGISTER',name:REG_CODE_TO_NAME[v]});
+    }
+  }
+  return {found,firstNoteMs};
+}
+function importRegistersFromString(str){
+  if(!midi){setStatus('Open the song\'s MIDI first, then import its string.');return;}
+  const {found,firstNoteMs}=registersFromString(str);
+  if(firstNoteMs===null){setStatus('That doesn\'t look like organ string data (no notes found).');return;}
+  if(!found.length){setStatus('No register changes found in that string.');return;}
+  const {noteSpans}=physicalEvents();
+  if(!noteSpans.length){setStatus('The loaded MIDI has no enabled notes to line the string up with.');return;}
+  const midiFirstNote=noteSpans.reduce((m,s)=>Math.min(m,s.start),Infinity);
+  const offset=midiFirstNote-firstNoteMs/1000;
+  let id=0;
+  const events=found.map(e=>{
+    const time=Number(Math.max(0,offset+e.ms/1000).toFixed(3));
+    return e.type==='CANCEL'?{id:++id,time,type:'CANCEL'}:{id:++id,time,type:'REGISTER',name:e.name};
+  });
+  commitEdit(()=>{registrationEvents=events;});
+  setStatus(`Imported ${events.length} register events from the string (aligned by ${offset>=0?'+':''}${offset.toFixed(3)} s).`);
+}
+
 function detectFormat(parsed){
   const names=new Set(parsed.tracks.map(t=>String(t.name||'').trim().toLowerCase()));
   const organHits=OUTPUT_TRACKS.filter(n=>names.has(n.toLowerCase())).length;
@@ -391,13 +474,14 @@ function openMidiEditor(){
       role:roleForTrack(t,index)
     }));
     durationSec=Math.max(0.1,Number(midi.duration)||tracks.reduce((m,t)=>t.notes.reduce((mm,n)=>Math.max(mm,n.time+n.duration),m),0));
-    cursorSec=0; registrationEvents=[]; undoStack=[]; redoStack=[]; renderAll();
+    currentSongKey=`${file.name}|${file.size}`;
+    cursorSec=0; registrationEvents=loadRegsLocal(); undoStack=[]; redoStack=[]; renderAll();
     $('editor-panel').classList.remove('hidden'); $('summary-panel').classList.add('hidden'); $('output-panel').classList.add('hidden'); $('roll-panel').classList.add('hidden');
     $('mode-badge').textContent=sourceMode==='SOURCE'?'Source MIDI':'Organ Output MIDI'; $('mode-badge').classList.add(sourceMode==='SOURCE'?'source':'output');
     $('format-badge').innerHTML=`<span class="badge ${sourceMode==='SOURCE'?'source':'output'}">Detected: ${sourceMode==='SOURCE'?'SOURCE MIDI':'ORGAN-OUTPUT MIDI'}</span>`;
     $('time-slider').max=durationSec; $('time-slider').value=0; $('time-slider').disabled=false;
     $('reset-btn').disabled=false;
-    setStatus(`Loaded ${file.name}: ${tracks.length} tracks, ${countNotes()} notes, ${fmt(durationSec)} duration.`);
+    setStatus(`Loaded ${file.name}: ${tracks.length} tracks, ${countNotes()} notes, ${fmt(durationSec)} duration.`+(registrationEvents.length?` Restored ${registrationEvents.length} autosaved register events.`:''));
   }).catch(err=>{console.error(err);setStatus(`MIDI load failed: ${err.message}`);});
 }
 function countNotes(){return tracks.reduce((s,t)=>s+t.notes.length,0);}
@@ -935,7 +1019,29 @@ function downloadBlob(blob,name){const url=URL.createObjectURL(blob);const a=doc
 
 $('midi-file').addEventListener('change',()=>{const f=$('midi-file').files[0];$('open-btn').disabled=!f;if(f&&!$('file-name').value.trim())$('file-name').value=safeName(f.name);});
 $('open-btn').onclick=openMidiEditor;
-$('reset-btn').onclick=()=>{if(playing)stopPlayback();registrationEvents=[];undoStack=[];redoStack=[];cursorSec=0;renderAll();updateHistoryButtons();};
+$('reset-btn').onclick=()=>{
+  if(registrationEvents.length&&!confirm('Remove all register events for this song? (Save them as .json first if you might want them back.)'))return;
+  if(playing)stopPlayback();registrationEvents=[];undoStack=[];redoStack=[];cursorSec=0;renderAll();updateHistoryButtons();saveRegsLocal();
+};
+$('import-string-btn').onclick=()=>{$('import-string-box').classList.toggle('hidden');$('import-string-text').focus();};
+$('import-string-cancel').onclick=()=>{$('import-string-box').classList.add('hidden');};
+$('import-string-go').onclick=()=>{importRegistersFromString($('import-string-text').value);$('import-string-box').classList.add('hidden');$('import-string-text').value='';};
+$('save-regs-btn').onclick=()=>{
+  if(!registrationEvents.length){setStatus('No register events to save yet.');return;}
+  const data={format:'fairground-organ-registers',version:1,song:currentSongKey,events:serializeRegs()};
+  downloadBlob(new Blob([JSON.stringify(data,null,1)],{type:'application/json'}),safeName($('file-name').value)+'-registers.json');
+};
+$('load-regs-btn').onclick=()=>{if(!midi){setStatus('Open the song\'s MIDI first.');return;}$('load-regs-file').click();};
+$('load-regs-file').onchange=async e=>{
+  const f=e.target.files[0];e.target.value='';if(!f)return;
+  try{
+    const data=JSON.parse(await f.text());
+    const events=setRegsFromList(Array.isArray(data)?data:data.events||[]);
+    if(!events.length){setStatus('That file has no register events.');return;}
+    commitEdit(()=>{registrationEvents=events;});
+    setStatus(`Loaded ${events.length} register events from ${f.name}.`);
+  }catch(err){console.error(err);setStatus('Could not read that register file.');}
+};
 $('all-on-btn').onclick=()=>{tracks.forEach(t=>t.enabled=true);renderTracks();renderTimeline();if(playing)restartPlaybackAtCursor();};
 $('all-off-btn').onclick=()=>{tracks.forEach(t=>t.enabled=false);renderTracks();renderTimeline();if(playing)restartPlaybackAtCursor();};
 $('play-btn').onclick=startPlayback;$('pause-btn').onclick=pausePlayback;$('stop-btn').onclick=stopPlayback;
