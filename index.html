@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Fairground Organ MIDI Compiler v3.2</title>
+<title>Fairground Organ MIDI Compiler v3.3</title>
 <script src="https://unpkg.com/@tonejs/midi"></script>
 <style>
 :root{--bg:#171717;--panel:#242424;--panel2:#1c1c1c;--border:#3d3d3d;--text:#eee;--muted:#aaa;--blue:#1677d2;--green:#2e9f56;--red:#b83b3b;--orange:#c98721;--timeline:#111;--grid:#2d2d2d;--playhead:#32a5ff;--paper:#fbf7f0}
@@ -38,7 +38,7 @@ input[type=text]{min-width:240px}.btns{display:flex;gap:8px;flex-wrap:wrap}butto
 <body>
 <div class="container">
     <div class="panel">
-        <h1>Fairground Organ MIDI Compiler v3.2</h1>
+        <h1>Fairground Organ MIDI Compiler v3.3</h1>
         <p style="margin:0">MIDI editor + registration timeline + divided tracker roll + organ string data + 10-track organ MIDI.</p>
         <div class="controls" style="margin-top:12px">
             <div class="field"><label>MIDI FILE</label><input id="midi-file" type="file" accept=".mid,.midi"></div>
@@ -105,7 +105,7 @@ input[type=text]{min-width:240px}.btns{display:flex;gap:8px;flex-wrap:wrap}butto
         <h2>Exports</h2>
         <div class="output-grid">
             <div class="output-box"><h3>Organ String Data</h3><textarea id="string-output" readonly placeholder="Generated tracker-hole string will appear here..."></textarea><div class="btns" style="margin-top:8px"><button id="copy-string" class="green">Copy String</button><button id="download-string" class="gray">Download String</button></div></div>
-            <div class="output-box"><h3>Generated Organ MIDI</h3><p class="note">Exactly 10 tracks: Bass, Flute, Cello, Accompaniment, Forte, Violin, Flageolet, Bourdon, Glockenspiel, Percussion. Input velocities are ignored; generated note velocity is fixed at 127.</p><button id="download-midi" class="green">Download Organ MIDI</button></div>
+            <div class="output-box"><h3>Generated Organ MIDI</h3><p class="note">Exactly 10 tracks, one per MIDI channel, each with its own instrument (program change) so it plays with the matching sound. Input velocities are ignored; generated note velocity is fixed at 127.</p><div id="instrument-map" class="note"></div><button id="download-midi" class="green">Download Organ MIDI</button></div>
         </div>
     </div>
 
@@ -171,6 +171,25 @@ const OUTPUT_TRACKS = ['Bass','Flute','Cello','Accompaniment','Forte','Violin','
 const REGISTER_NAMES = ['Cello','Flute','Glockenspiel','Bourdon','Violin','Flageolet','Forte'];
 const REGISTER_TRACK_TO_NAME = {'Cello':'Cello','Forte':'Forte','Violin':'Violin','Flute':'Flute','Flageolet':'Flageolet','Bourdon':'Bourdon','Glockenspiel':'Glockenspiel'};
 const OUTPUT_INDEX_BY_NAME = Object.fromEntries(OUTPUT_TRACKS.map((x,i)=>[x,i]));
+
+/* v3.3 — Instrument (program change) for each generated organ track.
+   channel = 0-based MIDI channel (0 = Ch 1 ... 9 = Ch 10).
+   program = 0-based General MIDI program number, as SF2 soundfont presets
+             count them (Bank 0, Preset N). GM lists add 1 (Glockenspiel = 10).
+   Channel 10 (index 9) is the GM drum channel; program 0 = Standard Kit.
+   Change a program number here to point a track at another soundfont preset. */
+const OUTPUT_INSTRUMENTS = {
+  Bass:          {channel:0, program:58, gm:'Tuba'},
+  Flute:         {channel:1, program:73, gm:'Flute'},
+  Cello:         {channel:2, program:42, gm:'Cello'},
+  Accompaniment: {channel:3, program:20, gm:'Reed Organ'},
+  Forte:         {channel:4, program:56, gm:'Trumpet'},
+  Violin:        {channel:5, program:40, gm:'Violin'},
+  Flageolet:     {channel:6, program:72, gm:'Piccolo'},
+  Bourdon:       {channel:7, program:19, gm:'Church Organ'},
+  Glockenspiel:  {channel:8, program:9,  gm:'Glockenspiel'},
+  Percussion:    {channel:9, program:0,  gm:'Standard Drum Kit'}
+};
 
 const NOTE_MIDI_MIN = 31;
 const NOTE_MIDI_MAX = 96;
@@ -717,7 +736,15 @@ function buildString(plainSpans,noteSpans){
 function activeRegistersForMelodyNote(noteTime){return Array.from(registerStateAt(noteTime));}
 function buildGeneratedMidi(){
   const out=new Midi();
-  const tracksOut={};OUTPUT_TRACKS.forEach((name,i)=>{const t=out.addTrack();t.name=name;t.channel=i;tracksOut[name]=t;});
+  const tracksOut={};
+  OUTPUT_TRACKS.forEach(name=>{
+    const inst=OUTPUT_INSTRUMENTS[name];
+    const t=out.addTrack();
+    t.name=name;
+    t.channel=inst.channel;           // track is bound to its own channel
+    t.instrument.number=inst.program; // written as a program change at tick 0
+    tracksOut[name]=t;
+  });
   if(sourceMode==='ORGAN_OUTPUT'){
     tracks.forEach(t=>{if(!t.enabled)return;const target=OUTPUT_TRACKS.find(x=>x.toLowerCase()===t.name.toLowerCase());if(!target)return;t.notes.forEach(n=>tracksOut[target].addNote({midi:n.midi,time:n.time,duration:n.duration,velocity:FIXED_VELOCITY/127}));});
     return out;
@@ -826,8 +853,15 @@ function renderRollLayoutInfo(layout){
   });
 }
 
+function renderInstrumentMap(){
+  $('instrument-map').innerHTML=OUTPUT_TRACKS.map(name=>{
+    const i=OUTPUT_INSTRUMENTS[name];
+    return `Ch ${i.channel+1} ${escapeHtml(name)} → ${escapeHtml(i.gm)} (preset ${i.program}, GM #${i.program+1})`;
+  }).join('<br>');
+}
 function generateOutputs(){
   if(!midi)return;
+  renderInstrumentMap();
   const {plainSpans,noteSpans,ignored}=physicalEvents();
   generatedString=buildString(plainSpans,noteSpans);
   generatedMidi=buildGeneratedMidi();
