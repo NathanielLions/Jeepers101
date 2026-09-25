@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Fairground Organ MIDI Compiler v3.3</title>
+<title>Fairground Organ MIDI Compiler v3.4</title>
 <script src="https://unpkg.com/@tonejs/midi"></script>
 <style>
 :root{--bg:#171717;--panel:#242424;--panel2:#1c1c1c;--border:#3d3d3d;--text:#eee;--muted:#aaa;--blue:#1677d2;--green:#2e9f56;--red:#b83b3b;--orange:#c98721;--timeline:#111;--grid:#2d2d2d;--playhead:#32a5ff;--paper:#fbf7f0}
@@ -38,7 +38,7 @@ input[type=text]{min-width:240px}.btns{display:flex;gap:8px;flex-wrap:wrap}butto
 <body>
 <div class="container">
     <div class="panel">
-        <h1>Fairground Organ MIDI Compiler v3.3</h1>
+        <h1>Fairground Organ MIDI Compiler v3.4</h1>
         <p style="margin:0">MIDI editor + registration timeline + divided tracker roll + organ string data + 10-track organ MIDI.</p>
         <div class="controls" style="margin-top:12px">
             <div class="field"><label>MIDI FILE</label><input id="midi-file" type="file" accept=".mid,.midi"></div>
@@ -135,6 +135,17 @@ input[type=text]{min-width:240px}.btns{display:flex;gap:8px;flex-wrap:wrap}butto
        31-96    = raw MIDI pitch number, interpreted under whichever division
                   marker most recently appeared IN THE SAME TICK.
 
+   v3.4 DUPLICATE NOTE MERGING
+   - Identical notes (same division + pitch starting together, e.g. from
+     layered source tracks on one channel) are merged into ONE note in the
+     string data, the paper roll, the organ MIDI and the preview audio, so
+     no note sounds louder or gets extra on/off messages.
+   - If the same pitch is struck again while still sounding, the first note
+     ends exactly where the new one starts (the pipe re-strikes), and the new
+     note keeps sounding as long as either copy would have.
+   - Duplicate percussion hits (same instrument, same moment) become one hit.
+   - MIDI note 36 (Bass Drum 1) now plays the bass drum, like 34 and 35.
+
    v3.2 PAPER ROLL CHANGES
    - The roll is no longer one fused 96-hole range. It is laid out as
      separate sections: Control | Bass | Accompaniment | Melody, with an
@@ -204,7 +215,7 @@ const PHYSICAL_CONTROLS = {
 
 const REGISTER_TRACKER_HOLES = {Cello:2,Flute:3,Glockenspiel:4,Bourdon:5,Violin:6,Forte:7,Flageolet:15};
 
-const PERCUSSION_INPUT = {BASS_A:34,BASS_B:35,SNARE:38,CYMBAL:49,WOODBLOCK:76,TRIANGLE:81};
+const PERCUSSION_INPUT = {BASS_A:34,BASS_B:35,BASS_C:36,SNARE:38,CYMBAL:49,WOODBLOCK:76,TRIANGLE:81};
 
 let midi = null;
 let originalMidiBytes = null;
@@ -512,6 +523,10 @@ $('timeline-canvas').addEventListener('pointerdown',e=>{
 });
 
 function midiNotesForPreview(){
+  // Merge identical notes of the same sound so previews aren't louder either.
+  return dedupeNotes(rawPreviewNotes(),n=>n.kind+'|'+(n.percussion?percVoice(n.midi):n.midi)).notes;
+}
+function rawPreviewNotes(){
   const out=[];
   if(sourceMode==='ORGAN_OUTPUT'){
     tracks.forEach(t=>{if(!t.enabled)return;const outputName=OUTPUT_TRACKS.find(n=>n.toLowerCase()===t.name.toLowerCase());if(!outputName)return;for(const n of t.notes){out.push({time:n.time,duration:n.duration,midi:n.midi,kind:outputName,percussion:outputName==='Percussion'});}});
@@ -662,47 +677,73 @@ function updatePlayButtons(){$('play-btn').disabled=playing;$('pause-btn').disab
    ============================================================ */
 function inNoteRange(midiNote){return midiNote>=NOTE_MIDI_MIN&&midiNote<=NOTE_MIDI_MAX;}
 function percussionHoles(midiNote){
-  if(midiNote===PERCUSSION_INPUT.BASS_A||midiNote===PERCUSSION_INPUT.BASS_B)return [14];
+  if(midiNote===PERCUSSION_INPUT.BASS_A||midiNote===PERCUSSION_INPUT.BASS_B||midiNote===PERCUSSION_INPUT.BASS_C)return [14];
   if(midiNote===PERCUSSION_INPUT.SNARE){const hole=alternatingSnareSide===0?9:11;alternatingSnareSide=1-alternatingSnareSide;return [hole];}
   if(midiNote===PERCUSSION_INPUT.CYMBAL)return [13];
   if(midiNote===PERCUSSION_INPUT.WOODBLOCK){const hole=alternatingWoodblockSide===0?10:12;alternatingWoodblockSide=1-alternatingWoodblockSide;return [hole];}
   if(midiNote===PERCUSSION_INPUT.TRIANGLE)return [8];
   return [];
 }
+/* ---- Duplicate merging (v3.4) ----
+   Groups spans by key (e.g. division+pitch). Within a group:
+   - spans starting within SAME_START_SEC of each other are one note
+     (kept once, lasting as long as the longest copy);
+   - a span that starts while the previous one still sounds re-strikes the
+     pipe: the old one ends at the new start, the new one lasts until the
+     later of the two ends.
+   Returns the cleaned spans and how many exact duplicates were removed. */
+const SAME_START_SEC = 0.01;
+function dedupeSpans(spans,keyOf){
+  const groups=new Map();
+  spans.forEach(sp=>{const k=keyOf(sp);let g=groups.get(k);if(!g){g=[];groups.set(k,g);}g.push(sp);});
+  const out=[];let merged=0;
+  groups.forEach(list=>{
+    list.sort((x,y)=>x.start-y.start||y.end-x.end);
+    let cur=null;
+    for(const sp of list){
+      if(cur&&sp.start-cur.start<SAME_START_SEC){if(sp.end>cur.end)cur.end=sp.end;merged++;continue;}
+      if(cur&&sp.start<cur.end){const tail=cur.end;cur.end=sp.start;cur={...sp,end:Math.max(sp.end,tail)};out.push(cur);continue;}
+      cur={...sp};out.push(cur);
+    }
+  });
+  return {spans:out,merged};
+}
+function dedupeNotes(notes,keyOf){
+  const r=dedupeSpans(notes.map(n=>({...n,start:n.time,end:n.time+n.duration})),keyOf);
+  return {notes:r.spans.map(sp=>{const n={...sp,time:sp.start,duration:sp.end-sp.start};delete n.start;delete n.end;return n;}),merged:r.merged};
+}
+function percVoice(m){return (m===34||m===35||m===36)?'BD':String(m);}
+
 function physicalEvents(){
-  const plainSpans=[];const noteSpans=[];let ignored=0;alternatingSnareSide=0;alternatingWoodblockSide=0;
+  const plainSpans=[];const rawNotes=[];const percNotes=[];let ignored=0;alternatingSnareSide=0;alternatingWoodblockSide=0;
   registrationEvents.forEach(e=>{
     if(e.type==='CANCEL') plainSpans.push({hole:1,start:e.time,end:e.time+REGISTER_PULSE_MS/1000,type:'REGISTER'});
     else {const h=REGISTER_TRACKER_HOLES[e.name];if(h!==null&&h!==undefined)plainSpans.push({hole:h,start:e.time,end:e.time+REGISTER_PULSE_MS/1000,type:'REGISTER'});}
   });
   const addNote=(division,n)=>{
     if(!inNoteRange(n.midi)){ignored++;return;}
-    noteSpans.push({hole:n.midi,division,start:n.time,end:n.time+n.duration,type:'NOTE'});
+    rawNotes.push({hole:n.midi,division,start:n.time,end:n.time+n.duration,type:'NOTE'});
   };
-  if(sourceMode==='SOURCE'){
-    tracks.forEach(t=>{
-      if(!t.enabled)return;
-      if(t.role==='BASS'||t.role==='ACCOMPANIMENT'||t.role==='MELODY'){
-        t.notes.forEach(n=>addNote(t.role,n));
-      }else if(t.role==='PERCUSSION'){
-        t.notes.forEach(n=>{const holes=percussionHoles(n.midi);if(!holes.length){ignored++;return;}holes.forEach(h=>plainSpans.push({hole:h,start:n.time,end:n.time+PERCUSSION_PULSE_MS/1000,type:'PERCUSSION'}));});
-      }
-    });
-  }else{
-    tracks.forEach(t=>{
-      if(!t.enabled)return;
-      if(t.role==='BASS'||t.role==='ACCOMPANIMENT'){
-        t.notes.forEach(n=>addNote(t.role,n));
-      }else if(t.role==='REGISTER_OUTPUT'){
-        t.notes.forEach(n=>addNote('MELODY',n));
-      }else if(t.role==='PERCUSSION'){
-        t.notes.forEach(n=>{const holes=percussionHoles(n.midi);if(!holes.length){ignored++;return;}holes.forEach(h=>plainSpans.push({hole:h,start:n.time,end:n.time+PERCUSSION_PULSE_MS/1000,type:'PERCUSSION'}));});
-      }
-    });
-  }
-  plainSpans.sort((a,b)=>a.start-b.start||a.hole-b.hole);
-  noteSpans.sort((a,b)=>a.start-b.start||a.hole-b.hole);
-  return {plainSpans,noteSpans,spans:[...plainSpans,...noteSpans],ignored};
+  tracks.forEach(t=>{
+    if(!t.enabled)return;
+    if(t.role==='BASS'||t.role==='ACCOMPANIMENT') t.notes.forEach(n=>addNote(t.role,n));
+    else if(t.role==='MELODY'&&sourceMode==='SOURCE') t.notes.forEach(n=>addNote('MELODY',n));
+    else if(t.role==='REGISTER_OUTPUT'&&sourceMode!=='SOURCE') t.notes.forEach(n=>addNote('MELODY',n));
+    else if(t.role==='PERCUSSION') t.notes.forEach(n=>percNotes.push({midi:n.midi,start:n.time,end:n.time+n.duration}));
+  });
+  // Percussion: merge simultaneous hits of the same instrument BEFORE
+  // assigning snare/wood-block sides, then assign sides in time order.
+  const perc=dedupeSpans(percNotes,sp=>percVoice(sp.midi));
+  perc.spans.sort((x,y)=>x.start-y.start||x.midi-y.midi).forEach(n=>{
+    const holes=percussionHoles(n.midi);
+    if(!holes.length){ignored++;return;}
+    holes.forEach(h=>plainSpans.push({hole:h,start:n.start,end:n.start+PERCUSSION_PULSE_MS/1000,type:'PERCUSSION'}));
+  });
+  const notes=dedupeSpans(rawNotes,sp=>sp.division+'|'+sp.hole);
+  const plain=dedupeSpans(plainSpans,sp=>sp.hole);
+  plain.spans.sort((x,y)=>x.start-y.start||x.hole-y.hole);
+  notes.spans.sort((x,y)=>x.start-y.start||x.hole-y.hole);
+  return {plainSpans:plain.spans,noteSpans:notes.spans,spans:[...plain.spans,...notes.spans],ignored,merged:notes.merged+perc.merged};
 }
 
 const sortTickValues=(a,b)=>{if(a<0&&b>=0)return -1;if(a>=0&&b<0)return 1;return Math.abs(a)-Math.abs(b);};
@@ -745,26 +786,35 @@ function buildGeneratedMidi(){
     t.instrument.number=inst.program; // written as a program change at tick 0
     tracksOut[name]=t;
   });
+  // Notes are collected first, de-duplicated per track, then written.
+  const pending=Object.fromEntries(OUTPUT_TRACKS.map(n=>[n,[]]));
+  const add=(name,n)=>pending[name].push({midi:n.midi,time:n.time,duration:n.duration});
   if(sourceMode==='ORGAN_OUTPUT'){
-    tracks.forEach(t=>{if(!t.enabled)return;const target=OUTPUT_TRACKS.find(x=>x.toLowerCase()===t.name.toLowerCase());if(!target)return;t.notes.forEach(n=>tracksOut[target].addNote({midi:n.midi,time:n.time,duration:n.duration,velocity:FIXED_VELOCITY/127}));});
-    return out;
+    tracks.forEach(t=>{if(!t.enabled)return;const target=OUTPUT_TRACKS.find(x=>x.toLowerCase()===t.name.toLowerCase());if(!target)return;t.notes.forEach(n=>add(target,n));});
+  }else{
+    const BASS_DOUBLING_REGISTERS=['Forte','Cello'];
+    const MELODY_EXCLUDED_REGISTERS=new Set(['Cello']);
+    tracks.forEach(t=>{
+      if(!t.enabled)return;
+      if(t.role==='BASS'){
+        t.notes.forEach(n=>{
+          add('Bass',n);
+          const active=registerStateAt(n.time);
+          BASS_DOUBLING_REGISTERS.forEach(reg=>{if(active.has(reg))add(reg,n);});
+        });
+      }
+      else if(t.role==='ACCOMPANIMENT')t.notes.forEach(n=>add('Accompaniment',n));
+      else if(t.role==='PERCUSSION')t.notes.forEach(n=>add('Percussion',n));
+      else if(t.role==='MELODY')t.notes.forEach(n=>activeRegistersForMelodyNote(n.time).forEach(reg=>{if(!MELODY_EXCLUDED_REGISTERS.has(reg))add(reg,n);}));
+    });
   }
-  const BASS_DOUBLING_REGISTERS=['Forte','Cello'];
-  const MELODY_EXCLUDED_REGISTERS=new Set(['Cello']);
-  tracks.forEach(t=>{
-    if(!t.enabled)return;
-    if(t.role==='BASS'){
-      t.notes.forEach(n=>{
-        tracksOut.Bass.addNote({midi:n.midi,time:n.time,duration:n.duration,velocity:FIXED_VELOCITY/127});
-        const active=registerStateAt(n.time);
-        BASS_DOUBLING_REGISTERS.forEach(reg=>{if(active.has(reg))tracksOut[reg].addNote({midi:n.midi,time:n.time,duration:n.duration,velocity:FIXED_VELOCITY/127});});
-      });
-    }
-    else if(t.role==='ACCOMPANIMENT')t.notes.forEach(n=>tracksOut.Accompaniment.addNote({midi:n.midi,time:n.time,duration:n.duration,velocity:FIXED_VELOCITY/127}));
-    else if(t.role==='PERCUSSION')t.notes.forEach(n=>tracksOut.Percussion.addNote({midi:n.midi,time:n.time,duration:n.duration,velocity:FIXED_VELOCITY/127}));
-    else if(t.role==='MELODY')t.notes.forEach(n=>activeRegistersForMelodyNote(n.time).forEach(reg=>{if(!MELODY_EXCLUDED_REGISTERS.has(reg))tracksOut[reg].addNote({midi:n.midi,time:n.time,duration:n.duration,velocity:FIXED_VELOCITY/127});}));
+  let merged=0;
+  OUTPUT_TRACKS.forEach(name=>{
+    const r=dedupeNotes(pending[name],n=>name==='Percussion'?percVoice(n.midi):n.midi);
+    merged+=r.merged;
+    r.notes.sort((x,y)=>x.time-y.time||x.midi-y.midi).forEach(n=>tracksOut[name].addNote({midi:n.midi,time:n.time,duration:n.duration,velocity:FIXED_VELOCITY/127}));
   });
-  return out;
+  return {midi:out,merged};
 }
 
 /* ============================================================
@@ -862,9 +912,10 @@ function renderInstrumentMap(){
 function generateOutputs(){
   if(!midi)return;
   renderInstrumentMap();
-  const {plainSpans,noteSpans,ignored}=physicalEvents();
+  const {plainSpans,noteSpans,ignored,merged}=physicalEvents();
   generatedString=buildString(plainSpans,noteSpans);
-  generatedMidi=buildGeneratedMidi();
+  const built=buildGeneratedMidi();
+  generatedMidi=built.midi;
   $('string-output').value=generatedString;
   const {pages,layout,skipped}=renderRoll(plainSpans,noteSpans);
   renderRollLayoutInfo(layout);
@@ -873,6 +924,7 @@ function generateOutputs(){
   const flags=[];
   flags.push('String format matches the in-game casing script: codes 1–7/15 are register stops, 8–14 percussion, 16/17/18 are Bass/Accompaniment/Melody division markers, and note values are raw MIDI pitch (31–96) — a division marker is re-sent in every tick where that division has a note change.');
   flags.push(`Paper roll: ${layout.sections.length} separate sections, ${layout.totalCols} hole columns in total.`);
+  if(merged||built.merged)flags.push(`Merged duplicate notes: ${merged} in the string data/roll, ${built.merged} in the organ MIDI (identical notes now sound once, never louder).`);
   if(ignored)flags.push(`${ignored} note(s) fell outside the 31–96 physical pipe range and were skipped.`);
   if(skipped)flags.push(`${skipped} note(s) fall outside the fixed ranges in DIVISION_PIPE_RANGES and are not punched on the roll.`);
   $('mapping-note').textContent=flags.join(' ');
