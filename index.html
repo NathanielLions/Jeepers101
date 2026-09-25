@@ -33,6 +33,7 @@ input[type=text]{min-width:240px}.btns{display:flex;gap:8px;flex-wrap:wrap}butto
 .roll-layout .sec-CONTROL{border-color:#777}.roll-layout .sec-BASS{border-color:#db5962}.roll-layout .sec-ACCOMPANIMENT{border-color:#55bd72}.roll-layout .sec-MELODY{border-color:#4aa3ff}
 .stats{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}@media(max-width:800px){.stats{grid-template-columns:repeat(2,1fr)}}.stat{background:#1a1a1a;border:1px solid #333;border-radius:5px;padding:9px}.stat label{font-size:10px;color:#777}.stat strong{display:block;font-size:18px;margin-top:2px}
 .reg-io{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}#import-string-box{margin-bottom:10px}#import-string-text{width:100%;height:120px;resize:vertical;background:#0d0d0d;color:#9dffb5;border:1px solid #333;border-radius:5px;padding:9px;font-family:"Courier New",monospace;font-size:11px;margin-bottom:8px}
+.role-warning{background:#3a2a10;border:1px solid #c98721;color:#ffd79a;border-radius:6px;padding:9px 10px;margin-bottom:8px;font-size:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 .note{font-size:11px;color:#8c8c8c;margin-top:8px}.danger-note{color:#e69b9b}.success-note{color:#94dda6}.hidden{display:none!important}
 </style>
 </head>
@@ -73,6 +74,7 @@ input[type=text]{min-width:240px}.btns{display:flex;gap:8px;flex-wrap:wrap}butto
         <div class="track-editor">
             <div>
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><h3 style="margin:0">MIDI Tracks</h3><div class="btns"><button id="all-on-btn" class="gray">All ON</button><button id="all-off-btn" class="gray">All OFF</button></div></div>
+                <div id="role-warning" class="role-warning hidden"></div>
                 <div id="track-list" class="track-list"></div>
             </div>
             <div class="register-panel">
@@ -145,6 +147,10 @@ input[type=text]{min-width:240px}.btns{display:flex;gap:8px;flex-wrap:wrap}butto
        16/17/18 = Division marker: Bass / Accompaniment / Melody
        31-96    = raw MIDI pitch number, interpreted under whichever division
                   marker most recently appeared IN THE SAME TICK.
+
+   v3.5 ROLE CHECK
+   - Warns (with a one-click swap) when the tracks on the Bass channel are
+     higher on average than the tracks on the Melody channel.
 
    v3.5 REGISTER RECOVERY / SAVING
    - "Import registers from String Data": paste an old string and every
@@ -499,6 +505,21 @@ function renderTracks(){
     row.children[4].innerHTML=`<span class="badge">${trackLabel(t.role)}</span>`;
     $('track-list').appendChild(row);
   });
+  checkRoleSanity();
+}
+/* v3.5: warn when Bass and Melody look swapped (bass part higher than melody). */
+function checkRoleSanity(){
+  const box=$('role-warning');
+  const avg=role=>{let sum=0,n=0;tracks.forEach(t=>{if(t.enabled&&t.role===role)t.notes.forEach(x=>{sum+=x.midi;n++;});});return n?sum/n:null;};
+  const bassAvg=avg('BASS'), melAvg=avg('MELODY');
+  if(sourceMode!=='SOURCE'||bassAvg===null||melAvg===null||bassAvg<=melAvg){box.classList.add('hidden');box.innerHTML='';return;}
+  box.innerHTML=`<span>⚠ The <b>Bass</b> tracks average ${midiName(Math.round(bassAvg))} but the <b>Melody</b> tracks average ${midiName(Math.round(melAvg))}. Bass and melody look swapped in this MIDI's channels.</span><button class="orange" id="swap-roles-btn">Swap Bass ↔ Melody</button>`;
+  box.classList.remove('hidden');
+  $('swap-roles-btn').onclick=()=>{
+    tracks.forEach(t=>{if(t.role==='BASS')t.role='MELODY';else if(t.role==='MELODY')t.role='BASS';});
+    renderTracks();renderTimeline();if(playing)restartPlaybackAtCursor();
+    setStatus('Swapped Bass and Melody roles. Generate Organ Outputs again to rebuild the string, roll and MIDI.');
+  };
 }
 function escapeHtml(v){return String(v).replace(/[&<>"']/g,s=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));}
 
