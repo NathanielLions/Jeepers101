@@ -631,25 +631,14 @@ function midiNotesForPreview(){
   // Merge identical notes of the same sound so previews aren't louder either.
   return dedupeNotes(rawPreviewNotes(),n=>n.kind+'|'+(n.percussion?percVoice(n.midi):n.midi)).notes;
 }
+/* v3.7 — The preview plays exactly the notes the generated organ MIDI
+   contains: both come from organOutputNotes(), so bass doubling into
+   Forte/Cello, Cello never taking melody, and silent melody when no
+   register is on all sound the same in Play as in the downloaded MIDI. */
 function rawPreviewNotes(){
   const out=[];
-  if(sourceMode==='ORGAN_OUTPUT'){
-    tracks.forEach(t=>{if(!t.enabled)return;const outputName=OUTPUT_TRACKS.find(n=>n.toLowerCase()===t.name.toLowerCase());if(!outputName)return;for(const n of t.notes){out.push({time:n.time,duration:n.duration,midi:n.midi,kind:outputName,percussion:outputName==='Percussion'});}});
-    return out;
-  }
-  tracks.forEach(t=>{
-    if(!t.enabled)return;
-    if(t.role==='BASS') t.notes.forEach(n=>out.push({time:n.time,duration:n.duration,midi:n.midi,kind:'Bass'}));
-    else if(t.role==='ACCOMPANIMENT') t.notes.forEach(n=>out.push({time:n.time,duration:n.duration,midi:n.midi,kind:'Accompaniment'}));
-    else if(t.role==='PERCUSSION') t.notes.forEach(n=>out.push({time:n.time,duration:n.duration,midi:n.midi,kind:'Percussion',percussion:true}));
-    else if(t.role==='MELODY'){
-      t.notes.forEach(n=>{
-        const state=registerStateAt(n.time);
-        if(!state.size) out.push({time:n.time,duration:n.duration,midi:n.midi,kind:'Melody'});
-        else state.forEach(reg=>out.push({time:n.time,duration:n.duration,midi:n.midi,kind:reg}));
-      });
-    }
-  });
+  const pending=organOutputNotes();
+  OUTPUT_TRACKS.forEach(name=>pending[name].forEach(n=>out.push({time:n.time,duration:n.duration,midi:n.midi,kind:name,percussion:name==='Percussion'})));
   return out;
 }
 
@@ -1050,6 +1039,19 @@ function buildGeneratedMidi(){
     tracksOut[name]=t;
   });
   // Notes are collected first, de-duplicated per track, then written.
+  const pending=organOutputNotes();
+  let merged=0;
+  OUTPUT_TRACKS.forEach(name=>{
+    const r=dedupeNotes(pending[name],n=>name==='Percussion'?percVoice(n.midi):n.midi);
+    merged+=r.merged;
+    r.notes.sort((x,y)=>x.time-y.time||x.midi-y.midi).forEach(n=>tracksOut[name].addNote({midi:n.midi,time:n.time,duration:n.duration,velocity:FIXED_VELOCITY/127}));
+  });
+  return {midi:out,merged};
+}
+
+/* Which notes go on which of the 10 organ output tracks. Shared by the
+   MIDI builder and the Play preview. Returns {TrackName:[notes]}. */
+function organOutputNotes(){
   const pending=Object.fromEntries(OUTPUT_TRACKS.map(n=>[n,[]]));
   const add=(name,n)=>pending[name].push({midi:n.midi,time:n.time,duration:n.duration});
   if(sourceMode==='ORGAN_OUTPUT'){
@@ -1071,13 +1073,7 @@ function buildGeneratedMidi(){
       else if(t.role==='MELODY')t.notes.forEach(n=>activeRegistersForMelodyNote(n.time).forEach(reg=>{if(!MELODY_EXCLUDED_REGISTERS.has(reg))add(reg,n);}));
     });
   }
-  let merged=0;
-  OUTPUT_TRACKS.forEach(name=>{
-    const r=dedupeNotes(pending[name],n=>name==='Percussion'?percVoice(n.midi):n.midi);
-    merged+=r.merged;
-    r.notes.sort((x,y)=>x.time-y.time||x.midi-y.midi).forEach(n=>tracksOut[name].addNote({midi:n.midi,time:n.time,duration:n.duration,velocity:FIXED_VELOCITY/127}));
-  });
-  return {midi:out,merged};
+  return pending;
 }
 
 /* ============================================================
