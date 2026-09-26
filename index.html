@@ -59,7 +59,7 @@ input[type=text]{min-width:240px}.btns{display:flex;gap:8px;flex-wrap:wrap}butto
         <div class="editor-toolbar">
             <button id="play-btn" class="green">▶ Play</button><button id="pause-btn" class="gray" disabled>⏸ Pause</button><button id="stop-btn" class="red" disabled>■ Stop</button>
             <button id="undo-btn" class="gray" disabled>↶ Undo</button><button id="redo-btn" class="gray" disabled>↷ Redo</button>
-            <div class="spacer"></div><div class="time-readout" id="cursor-time">00:00.00</div><div class="badge" id="mode-badge"></div>
+            <div class="spacer"></div><div class="badge" id="sf-badge">Loading organ soundfont…</div><button id="sf-load-btn" class="gray hidden" title="Pick Gio Organ v2.sf2 from your computer">Load .sf2</button><input id="sf-load-input" type="file" accept=".sf2" class="hidden"><div class="time-readout" id="cursor-time">00:00.00</div><div class="badge" id="mode-badge"></div>
         </div>
         <div class="scrubber">
             <div class="scrub-row"><input id="time-slider" type="range" min="0" max="1" step="0.001" value="0" disabled><output id="slider-time">00:00.00</output></div>
@@ -654,6 +654,163 @@ function rawPreviewNotes(){
 }
 
 /* ============================================================
+   SOUNDFONT PREVIEW (v3.6)
+   The preview plays the real organ samples from "Gio Organ v2.sf2",
+   which sits next to index.html in the repo. Each preview sound uses the
+   same preset as its generated MIDI track (OUTPUT_INSTRUMENTS program,
+   bank 128 for Percussion), so what you hear is what the MIDI will sound
+   like with this soundfont. If the file can't be loaded (e.g. the page
+   is opened straight from disk), the old synth sounds are used instead,
+   and a "Load .sf2" button lets you pick the file by hand.
+   ============================================================ */
+const SOUNDFONT_URL = 'Gio%20Organ%20v2.sf2';
+const SOUNDFONT_VOICE_GAIN = 0.32;      // overall loudness of sampled notes
+const PREVIEW_MELODY_PRESET = 'Flute';  // melody notes with no register active
+let sf2 = null;                          // parsed soundfont
+let sf2Status = 'loading';               // loading | ready | failed
+const sf2Buffers = new Map();            // sample index -> AudioBuffer
+
+function parseSF2(arrayBuffer){
+  const dv=new DataView(arrayBuffer);
+  const str=(o,n)=>{let s='';for(let i=0;i<n;i++){const c=dv.getUint8(o+i);if(!c)break;s+=String.fromCharCode(c);}return s;};
+  if(str(0,4)!=='RIFF'||str(8,4)!=='sfbk')throw new Error('Not an SF2 file');
+  const chunks={};
+  const walk=(start,end)=>{for(let o=start;o+8<=end;){const id=str(o,4),size=dv.getUint32(o+4,true);if(id==='LIST'){walk(o+12,o+8+size);}else chunks[id]={o:o+8,size};o+=8+size+(size&1);}};
+  walk(12,dv.byteLength);
+  const need=['smpl','phdr','pbag','pgen','inst','ibag','igen','shdr'];
+  need.forEach(k=>{if(!chunks[k])throw new Error('SF2 is missing the '+k+' chunk');});
+  const recs=(id,sz)=>{const c=chunks[id],out=[];for(let i=0;i<Math.floor(c.size/sz);i++)out.push(c.o+i*sz);return out;};
+  const smpl=new Int16Array(arrayBuffer.slice(chunks.smpl.o,chunks.smpl.o+chunks.smpl.size-(chunks.smpl.size&1)));
+  const samples=recs('shdr',46).slice(0,-1).map(o=>({
+    name:str(o,20),start:dv.getUint32(o+20,true),end:dv.getUint32(o+24,true),
+    loopStart:dv.getUint32(o+28,true),loopEnd:dv.getUint32(o+32,true),rate:dv.getUint32(o+36,true),
+    rootKey:dv.getUint8(o+40),correction:dv.getInt8(o+41)
+  }));
+  const readGens=(genRecs,from,to)=>{const g={};for(let i=from;i<to;i++){const o=genRecs[i],op=dv.getUint16(o,true);
+    g[op]=(op===43||op===44)?[dv.getUint8(o+2),dv.getUint8(o+3)]:(op===41||op===53)?dv.getUint16(o+2,true):dv.getInt16(o+2,true);}return g;};
+  const zonesOf=(bagRecs,genRecs,from,to,terminal)=>{const zones=[];for(let b=from;b<to;b++){zones.push(readGens(genRecs,dv.getUint16(bagRecs[b],true),dv.getUint16(bagRecs[b+1],true)));}
+    let global={};if(zones.length&&zones[0][terminal]===undefined)global=zones.shift();return {global,zones:zones.filter(z=>z[terminal]!==undefined)};};
+  const ibag=recs('ibag',4),igen=recs('igen',4),inst=recs('inst',22);
+  const instruments=inst.slice(0,-1).map((o,i)=>zonesOf(ibag,igen,dv.getUint16(o+20,true),dv.getUint16(inst[i+1]+20,true),53));
+  const pbag=recs('pbag',4),pgen=recs('pgen',4),phdr=recs('phdr',38);
+  // Generators that are NOT summed between preset and instrument level.
+  const NON_ADDITIVE=new Set([41,43,44,53,54,57,58,0,1,2,3,4,12,45,46,47,50]);
+  const DEFAULTS={8:13500,21:-12000,22:-12000,23:-12000,24:-12000,33:-12000,34:-12000,35:-12000,36:-12000,38:-12000,56:100,58:-1};
+  const range=(a,b)=>a&&b?[Math.max(a[0],b[0]),Math.min(a[1],b[1])]:(a||b||[0,127]);
+  const presets=new Map();
+  phdr.slice(0,-1).forEach((o,i)=>{
+    const program=dv.getUint16(o+20,true),bank=dv.getUint16(o+22,true);
+    const p=zonesOf(pbag,pgen,dv.getUint16(o+24,true),dv.getUint16(phdr[i+1]+24,true),41);
+    const regions=[];
+    p.zones.forEach(pz=>{
+      const pg={...p.global,...pz},ins=instruments[pz[41]];if(!ins)return;
+      ins.zones.forEach(iz=>{
+        const g={...DEFAULTS,...ins.global,...iz};
+        for(const k in pg){if(!NON_ADDITIVE.has(+k))g[k]=(g[k]||0)+pg[k];}
+        const keys=range(range(ins.global[43],iz[43]),range(p.global[43],pz[43]));
+        const vels=range(range(ins.global[44],iz[44]),range(p.global[44],pz[44]));
+        if(keys[0]>keys[1]||vels[0]>vels[1]||!samples[g[53]])return;
+        regions.push({keyLo:keys[0],keyHi:keys[1],velLo:vels[0],velHi:vels[1],g,sampleIndex:g[53]});
+      });
+    });
+    presets.set(bank+':'+program,regions);
+  });
+  return {smpl,samples,presets};
+}
+
+function setSoundfontBadge(){
+  const b=$('sf-badge'),btn=$('sf-load-btn');if(!b)return;
+  b.textContent=sf2Status==='ready'?'Sound: Gio Organ soundfont':sf2Status==='loading'?'Loading organ soundfont…':'Sound: synth (soundfont not loaded)';
+  b.className='badge '+(sf2Status==='ready'?'source':sf2Status==='loading'?'':'output');
+  if(btn)btn.classList.toggle('hidden',sf2Status!=='failed');
+}
+function useSoundfontBytes(arrayBuffer,label){
+  sf2=parseSF2(arrayBuffer);sf2Buffers.clear();sf2Status='ready';setSoundfontBadge();
+  console.log('Soundfont loaded:',label,[...sf2.presets.keys()]);
+}
+function loadSoundfont(){
+  sf2Status='loading';setSoundfontBadge();
+  fetch(SOUNDFONT_URL).then(r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.arrayBuffer();})
+    .then(ab=>useSoundfontBytes(ab,SOUNDFONT_URL))
+    .catch(err=>{console.warn('Could not load soundfont, using synth preview.',err);sf2=null;sf2Status='failed';setSoundfontBadge();});
+}
+
+function sf2Buffer(index){
+  let buf=sf2Buffers.get(index);if(buf)return buf;
+  const s=sf2.samples[index],len=Math.max(1,s.end-s.start);
+  buf=audioCtx.createBuffer(1,len,s.rate);
+  const ch=buf.getChannelData(0),src=sf2.smpl;
+  for(let i=0;i<len;i++)ch[i]=(src[s.start+i]||0)/32768;
+  sf2Buffers.set(index,buf);return buf;
+}
+function sf2PresetFor(kind){
+  if(kind==='Percussion')return sf2.presets.get('128:0');
+  const inst=OUTPUT_INSTRUMENTS[kind==='Melody'?PREVIEW_MELODY_PRESET:kind];
+  return inst?sf2.presets.get('0:'+inst.program):null;
+}
+const tc2sec=tc=>Math.pow(2,tc/1200);
+/* Plays one note with the soundfont. Returns false if the soundfont can't
+   handle it (not loaded / no preset), so the caller can fall back to synth. */
+function scheduleSoundfontNote(note,when,kind,dur){
+  if(sf2Status!=='ready'||!sf2)return false;
+  const regions=sf2PresetFor(kind);if(!regions)return false;
+  let key=note.midi;
+  if(kind==='Percussion'&&key===36)key=35;   // the page treats 36 as bass drum too
+  const hits=regions.filter(r=>key>=r.keyLo&&key<=r.keyHi&&FIXED_VELOCITY>=r.velLo&&FIXED_VELOCITY<=r.velHi);
+  if(!hits.length)return kind!=='Percussion'; // pitched: silent like the real MIDI; drums: synth fallback
+  hits.forEach(r=>{
+    const g=r.g,s=sf2.samples[r.sampleIndex],buf=sf2Buffer(r.sampleIndex);
+    const src=audioCtx.createBufferSource();src.buffer=buf;
+    const root=g[58]>=0?g[58]:s.rootKey;
+    const cents=(key-root)*g[56]+(g[51]||0)*100+(g[52]||0)+s.correction;
+    src.playbackRate.value=Math.pow(2,cents/1200);
+    const startOff=((g[0]||0)+(g[4]||0)*32768)/s.rate;
+    const looping=(g[54]&1)===1;
+    if(looping){
+      const ls=s.loopStart+(g[2]||0)+(g[45]||0)*32768-s.start,le=s.loopEnd+(g[3]||0)+(g[50]||0)*32768-s.start;
+      if(le>ls+1){src.loop=true;src.loopStart=ls/s.rate;src.loopEnd=le/s.rate;}
+    }
+    // Volume envelope (SF2 DAHDSR), cut off at note-off, then released.
+    const amp=Math.pow(10,-Math.max(0,g[48]||0)/200)*SOUNDFONT_VOICE_GAIN;
+    const sus=amp*Math.pow(10,-Math.max(0,g[37]||0)/200);
+    const tDelay=when+tc2sec(g[33]),tAtk=tDelay+Math.max(0.003,tc2sec(g[34])),tHold=tAtk+tc2sec(g[35]),tDec=tHold+tc2sec(g[36]);
+    const off=when+Math.max(0.02,dur);
+    const floor=1e-5,gain=audioCtx.createGain(),p=gain.gain;
+    p.setValueAtTime(floor,when);
+    let level=floor;
+    if(off<=tDelay){level=floor;}
+    else if(off<=tAtk){level=Math.max(floor,amp*(off-tDelay)/(tAtk-tDelay));p.setValueAtTime(floor,tDelay);p.linearRampToValueAtTime(level,off);}
+    else{
+      p.setValueAtTime(floor,tDelay);p.linearRampToValueAtTime(amp,tAtk);level=amp;
+      if(off>tHold){p.setValueAtTime(amp,tHold);
+        const target=Math.max(floor,sus),frac=Math.min(1,(off-tHold)/Math.max(1e-4,tDec-tHold));
+        level=amp*Math.pow(target/amp,frac);p.exponentialRampToValueAtTime(Math.max(floor,level),Math.min(off,tDec));
+        if(off>tDec)p.setValueAtTime(Math.max(floor,level),off);}
+    }
+    const rel=Math.max(0.02,tc2sec(g[38]));
+    p.setValueAtTime(Math.max(floor,level),off);
+    p.exponentialRampToValueAtTime(floor,off+rel);
+    let last=gain;const nodes=[gain];
+    if(g[8]<13500){const f=audioCtx.createBiquadFilter();f.type='lowpass';f.frequency.value=Math.min(20000,8.176*Math.pow(2,g[8]/1200));src.connect(f);f.connect(gain);nodes.push(f);}else src.connect(gain);
+    if(g[17]&&audioCtx.createStereoPanner){const pan=audioCtx.createStereoPanner();pan.pan.value=clamp(g[17]/500,-1,1);gain.connect(pan);last=pan;nodes.push(pan);}
+    last.connect(masterGain);
+    const sampleLen=buf.duration/src.playbackRate.value;
+    const stopAt=looping&&src.loop?off+rel:Math.min(off+rel,when+sampleLen+0.05);
+    src.start(when,Math.max(0,startOff));src.stop(stopAt+0.02);
+    trackNodes(src,...nodes);
+  });
+  return true;
+}
+$('sf-load-input').addEventListener('change',e=>{
+  const f=e.target.files&&e.target.files[0];if(!f)return;
+  f.arrayBuffer().then(ab=>{useSoundfontBytes(ab,f.name);setStatus('Soundfont loaded: '+f.name);})
+    .catch(err=>{console.error(err);setStatus('That file could not be read as an SF2 soundfont.');});
+  e.target.value='';
+});
+$('sf-load-btn').onclick=()=>$('sf-load-input').click();
+loadSoundfont();
+
+/* ============================================================
    PREVIEW AUDIO
    ============================================================ */
 function ensureAudio(){
@@ -736,6 +893,7 @@ function scheduleAhead(){
         d-=ctxNow-when; when=ctxNow;
       }
       if(d<=0)continue;
+      if(scheduleSoundfontNote(n,when,n.percussion?'Percussion':n.kind,d))continue;
       if(n.percussion)schedulePerc(n,when,d);else scheduleTone(n,when,n.kind,d);
     }catch(err){console.error('Failed to schedule note for playback',n,err);}
   }
